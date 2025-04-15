@@ -75,10 +75,20 @@ class NumpyTypeEncoder(json.JSONEncoder):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
 
+# def sanitize_filename(filename):
+#   # Remove special characters, emojis, and spaces
+#   sanitized = re.sub(r'[^\w\-. ]', '', filename)  # Keep letters, numbers, dots, dashes, spaces
+#   return sanitized.strip()
+
+import re
+
 def sanitize_filename(filename):
-  # Remove special characters, emojis, and spaces
-  sanitized = re.sub(r'[^\w\-. ]', '', filename)  # Keep letters, numbers, dots, dashes, spaces
-  return sanitized.strip()
+    """Removes or replaces characters that are not allowed in filenames."""
+    # Replace spaces with underscores
+    sanitized_name = filename.replace(" ", "_")
+    # Remove or replace other problematic characters using regex
+    sanitized_name = re.sub(r'[<>:"/\\|?*#!\']', '', sanitized_name)
+    return sanitized_name
 
 def preprocess_image(image):
   transform = transforms.Compose([
