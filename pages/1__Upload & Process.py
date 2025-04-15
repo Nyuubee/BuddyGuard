@@ -60,7 +60,7 @@ if col2.button("Upload YouTube Video"):
             yt = YouTube(youtube_url)
             video_stream = yt.streams.filter(file_extension='mp4').first()
             if video_stream:
-                sanitized_name = yt.title.replace(" ", "_").replace("/", "_")  # Simple sanitization
+                sanitized_name = sanitize_filename(yt.title)  # Use the sanitize_filename function
                 video_name = os.path.splitext(sanitized_name)[0]
                 output_dir = os.path.join("output", video_name)
                 os.makedirs(output_dir, exist_ok=True)

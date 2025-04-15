@@ -22,19 +22,19 @@ def main():
         }
     )
 
-    # main.py
-    pages = st.source_util.get_pages('main.py')
-    new_page_names = {
-        'main': 'Home',
-        '1__Upload & Process': '1__Upload & Process',
-        '2__History': '2__History',
-        '3__About': '3__About',
-        '4__Settings': '4__Settings',
-    }
-
-    for key, page in pages.items():
-        if page['page_name'] in new_page_names:
-            page['page_name'] = new_page_names[page['page_name']]
+    # # main.py
+    # pages = st.source_util.get_pages('main.py')
+    # new_page_names = {
+    #     'main': 'Home',
+    #     '1__Upload & Process': '1__Upload & Process',
+    #     '2__History': '2__History',
+    #     '3__About': '3__About',
+    #     '4__Settings': '4__Settings',
+    # }
+    #
+    # for key, page in pages.items():
+    #     if page['page_name'] in new_page_names:
+    #         page['page_name'] = new_page_names[page['page_name']]
 
     # Center the image
     st.markdown(
