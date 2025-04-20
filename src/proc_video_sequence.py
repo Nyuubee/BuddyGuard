@@ -53,6 +53,10 @@ def extract_frame_sequences(video_path, output_dir, model, class_names, sequence
             break
 
         frame_count += 1
+        output_path = os.path.join(output_dir, f"frame_{frame_count:04d}.jpg")
+
+        # Save EVERY frame immediately
+        cv2.imwrite(output_path, frame)
 
         if progress_callback:
             progress_callback()
@@ -116,10 +120,31 @@ def extract_frame_sequences(video_path, output_dir, model, class_names, sequence
 
     cap.release()
 
-    # Calculate average confidence scores
+    # With this:
+    total_frames = frame_count
+    violent_frames = len(confidence_scores_by_class.get('Violence', []))
+    safe_frames = total_frames - violent_frames
+
+    # Calculate frame-level percentages
+    safe_percentage = safe_frames / total_frames if total_frames > 0 else 1.0
+    violent_percentage = violent_frames / total_frames if total_frames > 0 else 0.0
+
+    # Calculate average confidence for violent frames only
+    avg_violent_confidence = np.mean(confidence_scores_by_class.get('Violence', [])) if violent_frames > 0 else 0.0
+
+    # Combine metrics
     avg_confidence = {
-        class_name: np.mean(scores) if scores else 0.0
-        for class_name, scores in confidence_scores_by_class.items()
+        'Safe': safe_percentage * 100,
+        'Violence': violent_percentage * avg_violent_confidence * 100  # Weight by both frequency and confidence
+    }
+    # Add sequence-based penalty (NEW CODE)
+    sequence_penalty = min(len(violence_sequences) * 0.1, 0.5)  # 10% per sequence, max 50%
+    final_violence_score = min(violent_percentage * avg_violent_confidence + sequence_penalty, 1.0)
+
+    # Update the confidence scores to use the final adjusted score
+    confidence_scores_by_class = {
+        'Safe': 1 - final_violence_score,
+        'Violence': final_violence_score
     }
 
     # Save any remaining sequence at the end

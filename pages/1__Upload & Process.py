@@ -4,6 +4,8 @@ import os
 import json
 import streamlit as st
 from pytubefix import YouTube
+from slugify import slugify
+
 from src.models_load import load_models
 from src.proc_audio import extract_audio, transcribe_audio, display_transcription_with_timestamps
 from src.proc_text import classify_text
@@ -84,21 +86,19 @@ if uploaded_file is not None:
     # Store the uploaded file in session state
     st.session_state.uploaded_video = uploaded_file
 
-# Process the uploaded video if it exists in session state
 if st.session_state.uploaded_video is not None:
     uploaded_file = st.session_state.uploaded_video
     if isinstance(uploaded_file, str):  # If it's a path from YouTube download
         video_path = uploaded_file
         video_name = os.path.splitext(os.path.basename(video_path))[0]
-        output_dir = st.session_state.output_dir  # Retrieve output_dir from session state
+        output_dir = st.session_state.output_dir
     else:  # If it's an uploaded file
-        sanitized_name = sanitize_filename(uploaded_file.name)
-        video_name = os.path.splitext(sanitized_name)[0]
+        # Use the uploaded filename (sanitized)
+        video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
         output_dir = os.path.join("output", video_name)
         os.makedirs(output_dir, exist_ok=True)
         video_path = os.path.join(output_dir, f"{video_name}.mp4")
 
-        # Only write the file if it doesn't exist already
         if not os.path.exists(video_path):
             with open(video_path, "wb") as f:
                 f.write(uploaded_file.read())
@@ -288,9 +288,12 @@ if st.session_state.uploaded_video is not None:
 
                 with st.expander("🎬 Visual Analysis"):
                     st.write("#### Visual Classification")
-                    st.progress(results['safe_score_resnet'], text=f"Safe: {results['safe_score_resnet'] * 100:.2f}%")
-                    st.progress(results['harmful_score_resnet'],
-                                text=f"Violent: {results['harmful_score_resnet'] * 100:.2f}%")
+                    # Show frame-level violence percentage
+                    violence_percentage = results['harmful_score_resnet']  # Now contains the adjusted score
+                    safe_percentage = 1 - violence_percentage
+
+                    st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+                    st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
 
                     sequences = get_detected_sequences(output_dir)
                     if sequences:

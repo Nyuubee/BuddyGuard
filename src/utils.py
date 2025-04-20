@@ -158,14 +158,19 @@ def save_results(output_dir, video_name, results):
     with open(history_file, "w") as f:
         json.dump(history, f, cls=NumpyTypeEncoder, indent=4)
 
-def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5):
-  safe_score = bert_weight * bert_scores['safe'] + resnet_weight * resnet_scores['safe']
-  harmful_score = bert_weight * bert_scores['harmful'] + resnet_weight * resnet_scores['harmful']
 
-  if harmful_score > safe_score:
-    return "Harmful", harmful_score
-  else:
-    return "Safe", safe_score
+def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.4, resnet_weight=0.6):
+    # Give more weight to visual violence detection
+    if resnet_scores['harmful'] > 0.3:  # If violence is detected with >30% confidence
+        resnet_weight = min(resnet_weight * 1.5, 0.8)  # Increase visual weight
+
+    combined_harmful = (bert_scores['harmful'] * bert_weight +
+                        resnet_scores['harmful'] * resnet_weight)
+
+    final_prediction = "Harmful" if combined_harmful > 0.5 else "Safe"
+    final_confidence = combined_harmful if final_prediction == "Harmful" else 1 - combined_harmful
+
+    return final_prediction, final_confidence
 
 def calculate_average_scores(confidence_scores_by_class):
     averages = {}
