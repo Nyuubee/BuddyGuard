@@ -5,248 +5,362 @@ import json
 import streamlit as st
 from pytubefix import YouTube
 from slugify import slugify
+
+# Import custom modules
 from src.models_load import load_models
 from src.proc_audio import extract_audio, transcribe_audio, display_transcription_with_timestamps
 from src.proc_text import classify_text
 from src.proc_video import extract_frames, combine_frames_to_video
-from src.utils import is_portrait_video, get_total_frames, calculate_average_scores, weighted_fusion, save_results, get_detected_sequences
 from src.proc_video_sequence import extract_frame_sequences
+from src.utils import (
+    is_portrait_video,
+    get_total_frames,
+    calculate_average_scores,
+    weighted_fusion,
+    save_results,
+    get_detected_sequences,
+)
 
 
-# Upload and Process Page
-
-st.title("Upload & Process Video")
-
-# Add CSS to control video size
-st.markdown("""
-<style> 
-    .portrait-video video { max-height: 200px !important; margin: 0 auto; display: block; }
-    .stImage { margin-bottom: 10px; }
-    .stImage img { border-radius: 5px; border: 1px solid #ddd; }
-</style>
-""", unsafe_allow_html=True)
-
-# Load all models
-models = load_models()
-tokenizer = models['tokenizer']
-bert_model = models['bert_model']
-whisper_model = models['whisper_model']
-resnet_model = models['resnet_model']
-class_names = models['class_names']
-device = models['device']
-
-
-# Initialize a key in session state to track if a video is uploaded
+# --- Initialize Session State ---
 if 'uploaded_video' not in st.session_state:
     st.session_state.uploaded_video = None
-
-# Initialize a key for cancel processing
 if 'cancel_processing' not in st.session_state:
     st.session_state.cancel_processing = False
+if 'processing_complete' not in st.session_state:
+    st.session_state.processing_complete = False
+if 'show_results' not in st.session_state:
+    st.session_state.show_results = False
+if 'video_name' not in st.session_state:
+    st.session_state.video_name = None
+if 'output_dir' not in st.session_state:
+    st.session_state.output_dir = None
+if 'download_progress' not in st.session_state:
+    st.session_state.download_progress = None
+if 'models' not in st.session_state:
+    st.session_state.models = None
 
-# File uploader for local files
 
-# Create two columns with proportions
-col1, col2 = st.columns([3, 1])
+# --- Helper Functions ---
+def load_models_once():
+    """Load models only once and store in session state."""
+    if st.session_state.models is None:
+        with st.spinner("Loading AI models (this may take a minute)..."):
+            st.session_state.models = load_models()
 
-# Input field with placeholder text inside
-youtube_url = col1.text_input("Enter youtube video", placeholder="Paste your YouTube link here", label_visibility="collapsed")
 
-if col2.button("Upload YouTube Video"):
-    if youtube_url:
-        try:
-            yt = YouTube(youtube_url)
-            video_stream = yt.streams.filter(file_extension='mp4').first()
-            if video_stream:
-                safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
-                video_name = safe_title[:50]  # Ensure max length
-                output_dir = os.path.join("output", video_name)
-                os.makedirs(output_dir, exist_ok=True)
+def progress_with_cancel_check(update_fn):
+    """Wrapper for progress callback that checks for cancellation."""
+    if st.session_state.cancel_processing:
+        st.warning("Process cancelled by user")
+        st.stop()
+    update_fn()
 
-                # Simple filename without repeating title
-                video_path = os.path.join(output_dir, "video.mp4")  # Fixed filename
 
-                # Download with simple filename
+def download_youtube_video(youtube_url):
+    """Downloads a YouTube video and returns the local file path and video name."""
+    try:
+        yt = YouTube(
+            youtube_url,
+            on_progress_callback=lambda stream, chunk, bytes_remaining: st.session_state.download_progress.progress(
+                1 - (bytes_remaining / stream.filesize)
+            ),
+        )
+        video_stream = yt.streams.filter(file_extension='mp4').first()
+        if video_stream:
+            safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
+            video_name = safe_title[:50]
+            output_dir = os.path.join("output", video_name)
+            os.makedirs(output_dir, exist_ok=True)
+            video_path = os.path.join(output_dir, "video.mp4")
+
+            st.session_state.download_progress = st.progress(0)
+            with st.spinner(f"Downloading: {yt.title[:50]}..."):
                 video_stream.download(output_path=output_dir, filename="video.mp4")
+            st.session_state.download_progress.empty()
+            return video_path, video_name, output_dir
+        else:
+            st.error("No suitable video stream found")
+            return None, None, None
+    except Exception as e:
+        st.error(f"Error downloading video: {str(e)}")
+        return None, None, None
 
-                # Store in session state
-                st.session_state.uploaded_video = video_path
-                st.session_state.output_dir = output_dir
-                st.success("Video downloaded successfully!")
-            else:
-                st.error("No suitable video stream found")
-        except Exception as e:
-            st.error(f"Error downloading video: {str(e)}")
 
-uploaded_file = st.file_uploader("Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"])
+def save_uploaded_video(uploaded_file):
+    """Saves the uploaded video file and returns the local file path and video name."""
+    video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
+    output_dir = os.path.join("output", video_name)
+    os.makedirs(output_dir, exist_ok=True)
+    video_path = os.path.join(output_dir, f"{video_name}.mp4")
+    with st.spinner("Saving uploaded video..."):
+        with open(video_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+    return video_path, video_name, output_dir
 
-if uploaded_file is not None:
-    # Store the uploaded file in session state
-    st.session_state.uploaded_video = uploaded_file
 
-if st.session_state.uploaded_video is not None:
-    uploaded_file = st.session_state.uploaded_video
-    if isinstance(uploaded_file, str):  # If it's a path from YouTube download
-        video_path = uploaded_file
-        video_name = os.path.splitext(os.path.basename(video_path))[0]
-        output_dir = st.session_state.output_dir
-    else:  # If it's an uploaded file
-        # Use the uploaded filename (sanitized)
-        video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
-        output_dir = os.path.join("output", video_name)
-        os.makedirs(output_dir, exist_ok=True)
-        video_path = os.path.join(output_dir, f"{video_name}.mp4")
+def analyze_video(video_path, output_dir, models):
+    """Analyzes the video content."""
+    progress_bar = st.progress(0)
+    processing_status = st.empty()
+    st.session_state.cancel_processing = False
+    total_frames = get_total_frames(video_path)
+    total_work = total_frames + 2  # Frames + audio processing + final processing
+    current_work = [0]
 
-        if not os.path.exists(video_path):
-            with open(video_path, "wb") as f:
-                f.write(uploaded_file.read())
+    def update_progress(increment=1):
+        current_work[0] += increment
+        progress_percentage = min(current_work[0] / total_work, 1.0)
+        progress_bar.progress(progress_percentage)
+        if st.session_state.cancel_processing:
+            st.warning("Process cancelled by user")
+            st.stop()
 
-    col1, col2, col3 = st.columns(3)
+    with processing_status.container():
+        st.spinner(f"Analyzing video: {os.path.basename(video_path)}")
+        if st.button("Cancel Process", type="secondary", use_container_width=True, key="cancel_btn"):
+            st.session_state.cancel_processing = True
+            st.warning("Cancelling process...")
+            st.stop()
 
-    with col2:
-        if os.path.exists(video_path):
-            st.subheader("Original Video")
-            if is_portrait_video(video_path):
-                st.markdown('<div class="portrait-video">', unsafe_allow_html=True)
-                st.video(video_path)
-                st.markdown('</div>', unsafe_allow_html=True)
-            else:
-                st.video(video_path)
-
-    process_button = st.button("Analyze Video", type="primary", use_container_width=True)
-
-    if process_button:
-        # Reset cancel flag when starting a new process
-        st.session_state.cancel_processing = False
-
-        progress_bar = st.progress(0)
-        processing_status = st.empty()  # Placeholder for status messages
-
-        with processing_status.container():
-            st.spinner(f"Analyzing video **{os.path.basename(video_path)}**, please wait...")
-
-            # Cancel button is only useful during processing
-            if st.button("Cancel Process", type="secondary", use_container_width=True):
-                st.session_state.cancel_processing = True
-                st.warning("Cancelling the process. Please wait...")
-
-            # Calculate total work units
-            total_frames = get_total_frames(video_path)
-            total_work = total_frames + 2  # Frames + audio processing + final processing
-            current_work = [0]
-
-            def update_progress(increment=1):
-                current_work[0] += increment
-                progress_percentage = min(current_work[0] / total_work, 1.0)
-                progress_bar.progress(progress_percentage)
-
-                # Check for cancel request
-                if st.session_state.cancel_processing:
-                    st.warning("Process cancelled by user")
-                    st.stop()  # This stops the current execution
-
-            # Extract audio and analyze text
+        with st.spinner("Extracting audio..."):
             audio_path = os.path.join(output_dir, "output_audio.wav")
             extract_audio(video_path, audio_path)
-
-            # Check for cancel request before continuing
-            if st.session_state.cancel_processing:
-                st.warning("Process cancelled by user")
-                st.stop()
-
-            transcription = transcribe_audio(audio_path, whisper_model)
-
-            # Check for cancel request before continuing
-            if st.session_state.cancel_processing:
-                st.warning("Process cancelled by user")
-                st.stop()
-
-            text_label, harmful_conf_text, safe_conf_text, highlighted_text = classify_text(transcription, bert_model, tokenizer, device)
             update_progress()
 
-            # Process video frames with progress callback and cancel check
+        with st.spinner("Transcribing audio..."):
+            transcription = transcribe_audio(audio_path, models['whisper_model'])
+            update_progress()
+
+        with st.spinner("Analyzing text content..."):
+            text_label, harmful_conf_text, safe_conf_text, highlighted_text = classify_text(
+                transcription, models['bert_model'], models['tokenizer'], models['device']
+            )
+            update_progress()
+
+        with st.spinner("Analyzing video frames..."):
             frames_path = os.path.join(output_dir, "processed_frames")
-
-            def progress_with_cancel_check():
-                if st.session_state.cancel_processing:
-                    st.warning("Process cancelled by user")
-                    st.stop()
-                update_progress()
-
             frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
                 video_path,
                 frames_path,
-                resnet_model,  # Now your ResNet-LSTM model
-                class_names,
-                sequence_length=16,  # Match your model's expected sequence length
-                progress_callback=progress_with_cancel_check
+                models['resnet_model'],
+                models['class_names'],
+                sequence_length=16,
+                progress_callback=lambda: progress_with_cancel_check(update_progress),
             )
 
-            # In your processing section, after defining frame_count:
-            gif_output_dir = os.path.join(output_dir, "detected_sequences")
-            current_sequence = []
-            current_preds = []
-            current_probs = []
-            current_frame_nums = []
-            sequence_id = 0
-
-            # Calculate final scores - adjust this based on your new model's outputs
-            harmful_score_resnet = confidence_scores_by_class.get('Violence', 0.0)
-            safe_score_resnet = confidence_scores_by_class.get('Safe', 0.0)
-
-            # Check for cancel request before continuing
-            if st.session_state.cancel_processing:
-                st.warning("Process cancelled by user")
-                st.stop()
-
-            # Calculate final scores
-            # harmful_classes = ['nsfw', 'violence']
-            harmful_classes = ['violence']
-            safe_classes = ['safe']
+        with st.spinner("Calculating final results..."):
             average_confidence_by_class = calculate_average_scores(confidence_scores_by_class)
-
-            # With this (more robust version):
             harmful_score_resnet = average_confidence_by_class.get('Violence', 0.0)
             safe_score_resnet = average_confidence_by_class.get('Safe', 0.0)
 
             bert_scores = {'safe': safe_conf_text, 'harmful': harmful_conf_text}
             resnet_scores = {'safe': safe_score_resnet, 'harmful': harmful_score_resnet}
-            final_prediction, final_confidence = weighted_fusion(bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5)
+            final_prediction, final_confidence = weighted_fusion(
+                bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5
+            )
 
-            # Check for cancel request before continuing
-            if st.session_state.cancel_processing:
-                st.warning("Process cancelled by user")
-                st.stop()
-
-            # Create processed video
-            video_basename = os.path.basename(video_path)
-            video_name_no_ext = os.path.splitext(video_basename)[0]
-            processed_video_path = os.path.join(output_dir, f"processed_{video_name_no_ext}.mp4")
+        with st.spinner("Generating processed video..."):
+            processed_video_path = os.path.join(output_dir, f"processed_{os.path.basename(output_dir)}.mp4")
             combine_frames_to_video(frames_path, processed_video_path, frame_count, audio_path)
             update_progress()
 
-            # Save results
-            results = {
-                "harmful_score_resnet": harmful_score_resnet,
-                "safe_score_resnet": safe_score_resnet,
-                "resnet_scores": resnet_scores,
-                "harmful_conf_text": harmful_conf_text,
-                "safe_conf_text": safe_conf_text,
-                "bert_scores": bert_scores,
-                "final_prediction": final_prediction,
-                "final_confidence": final_confidence,
-                "transcription": transcription,
-                "highlighted_text": highlighted_text,
-            }
-            save_results(output_dir, video_name, results)
+        results = {
+            "harmful_score_resnet": harmful_score_resnet,
+            "safe_score_resnet": safe_score_resnet,
+            "resnet_scores": resnet_scores,
+            "harmful_conf_text": harmful_conf_text,
+            "safe_conf_text": safe_conf_text,
+            "bert_scores": bert_scores,
+            "final_prediction": final_prediction,
+            "final_confidence": final_confidence,
+            "transcription": transcription,
+            "highlighted_text": highlighted_text,
+        }
+        save_results(output_dir, os.path.basename(output_dir), results)
+        return results, processed_video_path
 
-            st.success("Processing complete!")
+
+def display_results(results, output_dir):
+    """Displays the analysis results in the Streamlit app."""
+    st.subheader("Analysis Results")
+
+    # Final verdict with color coding
+    verdict_color = "red" if results['final_prediction'] == "Harmful" else "green"
+    st.markdown(
+        f"""
+    <div style='padding: 10px; border-radius: 5px; background-color: {verdict_color}; color: white; text-align: center;'>
+    <h3>VERDICT: {results['final_prediction'].upper()}</h3>
+    <p>Confidence: {results['final_confidence'] * 100:.2f}%</p>
+    </div>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # Metrics row
+    metric_col1, metric_col2, metric_col3 = st.columns(3)
+    with metric_col1:
+        st.metric(
+            "Text Harmful",
+            f"{(1 - results['safe_conf_text']) * 100:.2f}%",
+            f"{(0.5 - results['safe_conf_text']) * 200:.2f}%"
+            if results['safe_conf_text'] < 0.5
+            else f"{(0.5 - results['safe_conf_text']) * 200:.2f}%",
+        )
+    with metric_col2:
+        st.metric(
+            "Visual Harmful",
+            f"{(1 - results['safe_score_resnet']) * 100:.2f}%",
+            f"{(0.5 - results['safe_score_resnet']) * 200:.2f}%"
+            if results['safe_score_resnet'] < 0.5
+            else f"{(0.5 - results['safe_score_resnet']) * 200:.2f}%",
+        )
+    with metric_col3:
+        st.metric(
+            "Overall Harmful",
+            f"{results['final_confidence'] * 100:.2f}%"
+            if results['final_prediction'] == "Harmful"
+            else f"{(1 - results['final_confidence']) * 100:.2f}%",
+            "Harmful" if results['final_prediction'] == "Harmful" else "Safe",
+        )
+
+    # Detailed results in tabs
+    tab1, tab2, tab3 = st.tabs(["Text Analysis", "Visual Analysis", "Transcription"])
+
+    with tab1:
+        st.write("#### Text Classification")
+        st.progress(results['safe_conf_text'], text=f"Safe Content: {results['safe_conf_text'] * 100:.2f}%")
+        st.progress(
+            results['harmful_conf_text'], text=f"Harmful Content: {results['harmful_conf_text'] * 100:.2f}%"
+        )
+        st.write("#### Highlighted Toxic Content")
+        st.markdown(f"<div style='font-size:16px;'>{results['highlighted_text']}</div>", unsafe_allow_html=True)
+
+    with tab2:
+        st.write("#### Visual Classification")
+        violence_percentage = results['harmful_score_resnet']
+        safe_percentage = 1 - violence_percentage
+        st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+        st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
+
+        sequences = get_detected_sequences(output_dir)
+        if sequences:
+            st.write(f"**Detected {len(sequences)} violent sequences**")
+            for i in range(0, len(sequences), 2):
+                cols = st.columns(2)
+                for col_idx in range(2):
+                    if i + col_idx < len(sequences):
+                        with cols[col_idx]:
+                            st.markdown(f"**Sequence {i + col_idx + 1}**")
+                            st.image(sequences[i + col_idx]['gif_path'], use_container_width=True)
+        else:
+            st.info("No violent sequences detected")
+
+    with tab3:
+        display_transcription_with_timestamps(results['transcription'], "results_video_player")
+
+
+# --- Main Streamlit App ---
+def main():
+    st.title("Upload & Process Video")
+
+    # Load models
+    load_models_once()
+    if st.session_state.models is None:
+        st.error("Failed to load AI models.")
+        return
+    models = st.session_state.models
+
+    # Add CSS to control video size
+    st.markdown(
+        """
+    <style>
+        .portrait-video video { max-height: 200px !important; margin: 0 auto; display: block; }
+        .stImage { margin-bottom: 10px; }
+        .stImage img { border-radius: 5px; border: 1px solid #ddd; }
+    </style>
+    """,
+        unsafe_allow_html=True,
+    )
+
+    # File upload section
+    with st.container():
+        st.subheader("Upload Video")
+        col1, col2 = st.columns([3, 1])
+        youtube_url = col1.text_input(
+            "Enter YouTube video URL",
+            placeholder="Paste your YouTube link here",
+            label_visibility="collapsed",
+            key="youtube_url",
+        )
+
+        if col2.button("Upload YouTube Video", key="upload_yt"):
+            if youtube_url:
+                video_path, video_name, output_dir = download_youtube_video(youtube_url)
+                if video_path:
+                    st.session_state.uploaded_video = video_path
+                    st.session_state.video_name = video_name
+                    st.session_state.output_dir = output_dir
+                    st.session_state.processing_complete = False
+                    st.session_state.show_results = False
+                    st.success("Video downloaded successfully!")
+
+        uploaded_file = st.file_uploader(
+            "Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"], key="file_uploader"
+        )
+
+        if uploaded_file is not None:
+            if uploaded_file.size > 100 * 1024 * 1024:
+                st.error("File too large. Maximum size is 100MB.")
+            else:
+                video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
+                st.session_state.uploaded_video = video_path
+                st.session_state.video_name = video_name
+                st.session_state.output_dir = output_dir
+                st.session_state.processing_complete = False
+                st.session_state.show_results = False
+
+    # Show uploaded video preview
+    if st.session_state.uploaded_video is not None:
+        video_path = st.session_state.uploaded_video
 
         col1, col2, col3 = st.columns(3)
 
         with col2:
-            st.subheader("Analyzed Video")
-            if os.path.exists(processed_video_path):
+            st.subheader("Video Preview")
+            if os.path.exists(video_path):
+                if is_portrait_video(video_path):
+                    st.markdown('<div class="portrait-video">', unsafe_allow_html=True)
+                    st.video(video_path)
+                    st.markdown('</div>', unsafe_allow_html=True)
+                else:
+                    st.video(video_path)
+
+        # Only show process button if not already processed
+        if not st.session_state.processing_complete:
+            if st.button("Analyze Video", type="primary", use_container_width=True, key="analyze_btn"):
+                st.session_state.processing_complete = False
+                st.session_state.show_results = False
+                results, processed_video_path = analyze_video(
+                    st.session_state.uploaded_video, st.session_state.output_dir, models
+                )
+                if results:
+                    st.session_state.processing_complete = True
+                    st.session_state.show_results = True
+                    st.session_state.processed_video_path = processed_video_path
+                    st.session_state.analysis_results = results
+                    st.success("Analysis complete!")
+                    st.balloons()
+
+    # Show results only after processing is complete
+    if st.session_state.show_results and st.session_state.processing_complete and 'analysis_results' in st.session_state:
+        # Show processed video
+        processed_video_path = st.session_state.get("processed_video_path")
+        col1, col2, col3 = st.columns(3)
+
+        with col2:
+            st.subheader("Processed Video")
+            if processed_video_path and os.path.exists(processed_video_path):
                 if is_portrait_video(processed_video_path):
                     st.markdown('<div class="portrait-video">', unsafe_allow_html=True)
                     st.video(processed_video_path)
@@ -254,67 +368,20 @@ if st.session_state.uploaded_video is not None:
                 else:
                     st.video(processed_video_path)
 
-    if os.path.exists("saves/processed_videos.json"):
-        with open("saves/processed_videos.json", "r") as f:
-            history = json.load(f)
-            if video_name in history:
-                st.subheader("Analysis Results")
-                results = history[video_name]
+        display_results(st.session_state.analysis_results, st.session_state.output_dir)
 
-                st.markdown("#### Content Analysis")
+        # Clear button
+        if st.button("Start New Analysis", type="primary", key="new_analysis"):
+            st.session_state.uploaded_video = None
+            st.session_state.processing_complete = False
+            st.session_state.show_results = False
+            st.session_state.cancel_processing = False
+            st.session_state.video_name = None
+            st.session_state.output_dir = None
+            st.session_state.analysis_results = None
+            st.session_state.processed_video_path = None
+            st.rerun()
 
-                # Create metrics in a row
-                metric_col1, metric_col2, metric_col3 = st.columns(3)
-                with metric_col1:
-                    st.metric("Text Harmful", f"{(1-results['safe_conf_text'])*100:.2f}%",
-                             f"{(0.5-results['safe_conf_text'])*200:.2f}%" if results['safe_conf_text'] < 0.5 else f"{(0.5-results['safe_conf_text'])*200:.2f}%")
-                with metric_col2:
-                    st.metric("Visual Harmful", f"{(1-results['safe_score_resnet'])*100:.2f}%",
-                             f"{(0.5-results['safe_score_resnet'])*200:.2f}%" if results['safe_score_resnet'] < 0.5 else f"{(0.5-results['safe_score_resnet'])*200:.2f}%")
-                with metric_col3:
-                    st.metric("Overall Harmful", f"{results['final_confidence']*100:.2f}%" if results['final_prediction'] == "Harmful" else f"{(1-results['final_confidence'])*100:.2f}%",
-                             "Harmful" if results['final_prediction'] == "Harmful" else "Safe")
 
-                # Detailed results in expanders
-                with st.expander("📝 Text Analysis"):
-                    st.write("#### Text Classification")
-                    st.progress(results['safe_conf_text'], text=f"Safe Content: {results['safe_conf_text']*100:.2f}%")
-                    st.progress(results['harmful_conf_text'], text=f"Harmful Content: {results['harmful_conf_text']*100:.2f}%")
-
-                    st.write("#### Highlighted Toxic Content")
-                    st.markdown(f"<div style='font-size:16px;'>{results['highlighted_text']}</div>", unsafe_allow_html=True)
-
-                with st.expander("🎬 Visual Analysis"):
-                    st.write("#### Visual Classification")
-                    # Show frame-level violence percentage
-                    violence_percentage = results['harmful_score_resnet']  # Now contains the adjusted score
-                    safe_percentage = 1 - violence_percentage
-
-                    st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
-                    st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
-
-                    sequences = get_detected_sequences(output_dir)
-                    if sequences:
-                        st.write(f"**Detected {len(sequences)} violent sequences**")
-
-                        # Display GIFs in rows of 2
-                        for i in range(0, len(sequences), 2):
-                            cols = st.columns(2)
-                            for col_idx in range(2):
-                                if i + col_idx < len(sequences):
-                                    with cols[col_idx]:
-                                        st.markdown(f"**Sequence {i + col_idx + 1}**")
-                                        st.image(
-                                            sequences[i + col_idx]['gif_path'],
-                                            use_container_width=True
-                                        )
-                    else:
-                        st.info("No violent sequences detected")
-
-                with st.expander("🔊 Transcription"):
-                    display_transcription_with_timestamps(results['transcription'], "video_player")
-
-                # Clear button to reset the UI
-                if st.button("Clear", type="secondary"):
-                    st.session_state.uploaded_video = None
-                    st.session_state.cancel_processing = False
+if __name__ == "__main__":
+    main()
