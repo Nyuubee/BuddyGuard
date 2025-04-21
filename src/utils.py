@@ -6,7 +6,6 @@
 import cv2
 import json
 import os
-import re
 import torch
 import numpy as np
 import streamlit as st
@@ -74,21 +73,6 @@ class NumpyTypeEncoder(json.JSONEncoder):
         elif isinstance(obj, np.ndarray):
             return obj.tolist()
         return json.JSONEncoder.default(self, obj)
-
-# def sanitize_filename(filename):
-#   # Remove special characters, emojis, and spaces
-#   sanitized = re.sub(r'[^\w\-. ]', '', filename)  # Keep letters, numbers, dots, dashes, spaces
-#   return sanitized.strip()
-
-import re
-
-def sanitize_filename(filename):
-    """Removes or replaces characters that are not allowed in filenames."""
-    # Replace spaces with underscores
-    sanitized_name = filename.replace(" ", "_")
-    # Remove or replace other problematic characters using regex
-    sanitized_name = re.sub(r'[<>:"/\\|?*#!\']', '', sanitized_name)
-    return sanitized_name
 
 def preprocess_image(image):
   transform = transforms.Compose([

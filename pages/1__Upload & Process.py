@@ -5,17 +5,15 @@ import json
 import streamlit as st
 from pytubefix import YouTube
 from slugify import slugify
-
 from src.models_load import load_models
 from src.proc_audio import extract_audio, transcribe_audio, display_transcription_with_timestamps
 from src.proc_text import classify_text
 from src.proc_video import extract_frames, combine_frames_to_video
-from src.utils import sanitize_filename, is_portrait_video, get_total_frames, calculate_average_scores, weighted_fusion, save_results, get_detected_sequences
+from src.utils import is_portrait_video, get_total_frames, calculate_average_scores, weighted_fusion, save_results, get_detected_sequences
 from src.proc_video_sequence import extract_frame_sequences
 
 
 # Upload and Process Page
-
 
 st.title("Upload & Process Video")
 
@@ -38,7 +36,6 @@ class_names = models['class_names']
 device = models['device']
 
 
-
 # Initialize a key in session state to track if a video is uploaded
 if 'uploaded_video' not in st.session_state:
     st.session_state.uploaded_video = None
@@ -55,30 +52,31 @@ col1, col2 = st.columns([3, 1])
 # Input field with placeholder text inside
 youtube_url = col1.text_input("Enter youtube video", placeholder="Paste your YouTube link here", label_visibility="collapsed")
 
-# Add vertical spacing to align the button with the input field
 if col2.button("Upload YouTube Video"):
     if youtube_url:
         try:
             yt = YouTube(youtube_url)
             video_stream = yt.streams.filter(file_extension='mp4').first()
             if video_stream:
-                sanitized_name = sanitize_filename(yt.title)  # Use the sanitize_filename function
-                video_name = os.path.splitext(sanitized_name)[0]
+                safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
+                video_name = safe_title[:50]  # Ensure max length
                 output_dir = os.path.join("output", video_name)
                 os.makedirs(output_dir, exist_ok=True)
-                video_path = os.path.join(output_dir, f"{video_name}.mp4")
 
-                # Download the video
-                video_stream.download(output_path=output_dir, filename=f"{video_name}.mp4")
+                # Simple filename without repeating title
+                video_path = os.path.join(output_dir, "video.mp4")  # Fixed filename
 
-                # Store the downloaded video in session state
+                # Download with simple filename
+                video_stream.download(output_path=output_dir, filename="video.mp4")
+
+                # Store in session state
                 st.session_state.uploaded_video = video_path
                 st.session_state.output_dir = output_dir
-                st.success(f"Video '{yt.title}' downloaded successfully!")
+                st.success("Video downloaded successfully!")
             else:
-                st.error("No suitable video stream found.")
+                st.error("No suitable video stream found")
         except Exception as e:
-            st.error(f"Error downloading YouTube video: {e}")
+            st.error(f"Error downloading video: {str(e)}")
 
 uploaded_file = st.file_uploader("Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"])
 
