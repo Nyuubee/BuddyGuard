@@ -19,6 +19,7 @@ from src.utils import (
     weighted_fusion,
     save_results,
     get_detected_sequences,
+    get_video_duration
 )
 
 
@@ -57,6 +58,36 @@ def progress_with_cancel_check(update_fn):
     update_fn()
 
 
+# def download_youtube_video(youtube_url):
+#     """Downloads a YouTube video and returns the local file path and video name."""
+#     try:
+#         yt = YouTube(
+#             youtube_url,
+#             on_progress_callback=lambda stream, chunk, bytes_remaining: st.session_state.download_progress.progress(
+#                 1 - (bytes_remaining / stream.filesize)
+#             ),
+#         )
+#         video_stream = yt.streams.filter(file_extension='mp4').first()
+#         if video_stream:
+#             safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
+#             video_name = safe_title[:50]
+#             output_dir = os.path.join("output", video_name)
+#             os.makedirs(output_dir, exist_ok=True)
+#             video_path = os.path.join(output_dir, "video.mp4")
+#
+#             st.session_state.download_progress = st.progress(0)
+#             with st.spinner(f"Downloading: {yt.title[:50]}..."):
+#                 video_stream.download(output_path=output_dir, filename="video.mp4")
+#             st.session_state.download_progress.empty()
+#             return video_path, video_name, output_dir
+#         else:
+#             st.error("No suitable video stream found")
+#             return None, None, None
+#     except Exception as e:
+#         st.error(f"Error downloading video: {str(e)}")
+#         return None, None, None
+
+
 def download_youtube_video(youtube_url):
     """Downloads a YouTube video and returns the local file path and video name."""
     try:
@@ -66,6 +97,13 @@ def download_youtube_video(youtube_url):
                 1 - (bytes_remaining / stream.filesize)
             ),
         )
+
+        # Check duration before downloading
+        if yt.length < 10:
+            raise ValueError(f"Video is too short ({yt.length} seconds). Minimum length is 10 seconds.")
+        if yt.length > 180:
+            raise ValueError(f"Video is too long ({yt.length} seconds). Maximum length is 180 seconds.")
+
         video_stream = yt.streams.filter(file_extension='mp4').first()
         if video_stream:
             safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
@@ -87,15 +125,38 @@ def download_youtube_video(youtube_url):
         return None, None, None
 
 
+# def save_uploaded_video(uploaded_file):
+#     """Saves the uploaded video file and returns the local file path and video name."""
+#     video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
+#     output_dir = os.path.join("output", video_name)
+#     os.makedirs(output_dir, exist_ok=True)
+#     video_path = os.path.join(output_dir, f"{video_name}.mp4")
+#     with st.spinner("Saving uploaded video..."):
+#         with open(video_path, "wb") as f:
+#             f.write(uploaded_file.getbuffer())
+#     return video_path, video_name, output_dir
+
+
 def save_uploaded_video(uploaded_file):
     """Saves the uploaded video file and returns the local file path and video name."""
     video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
     output_dir = os.path.join("output", video_name)
     os.makedirs(output_dir, exist_ok=True)
     video_path = os.path.join(output_dir, f"{video_name}.mp4")
+
     with st.spinner("Saving uploaded video..."):
         with open(video_path, "wb") as f:
             f.write(uploaded_file.getbuffer())
+
+        # Check video duration
+        duration = get_video_duration(video_path)
+        if duration < 10:
+            os.remove(video_path)
+            raise ValueError(f"Video is too short ({duration:.1f} seconds). Minimum length is 10 seconds.")
+        if duration > 180:
+            os.remove(video_path)
+            raise ValueError(f"Video is too long ({duration:.1f} seconds). Maximum length is 180 seconds.")
+
     return video_path, video_name, output_dir
 
 
@@ -309,16 +370,32 @@ def main():
             "Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"], key="file_uploader"
         )
 
+        # if uploaded_file is not None:
+        #     if uploaded_file.size > 100 * 1024 * 1024:
+        #         st.error("File too large. Maximum size is 100MB.")
+        #     else:
+        #         video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
+        #         st.session_state.uploaded_video = video_path
+        #         st.session_state.video_name = video_name
+        #         st.session_state.output_dir = output_dir
+        #         st.session_state.processing_complete = False
+        #         st.session_state.show_results = False
+
         if uploaded_file is not None:
             if uploaded_file.size > 100 * 1024 * 1024:
                 st.error("File too large. Maximum size is 100MB.")
             else:
-                video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
-                st.session_state.uploaded_video = video_path
-                st.session_state.video_name = video_name
-                st.session_state.output_dir = output_dir
-                st.session_state.processing_complete = False
-                st.session_state.show_results = False
+                try:
+                    video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
+                    st.session_state.uploaded_video = video_path
+                    st.session_state.video_name = video_name
+                    st.session_state.output_dir = output_dir
+                    st.session_state.processing_complete = False
+                    st.session_state.show_results = False
+                except ValueError as e:
+                    st.error(str(e))
+                except Exception as e:
+                    st.error(f"Error processing video: {str(e)}")
 
     # Show uploaded video preview
     if st.session_state.uploaded_video is not None:

@@ -230,6 +230,16 @@ def is_portrait_video(video_path):
     cap.release()
     return False
 
+def get_video_duration(video_path):
+    """Get the duration of a video in seconds."""
+    import cv2
+    video = cv2.VideoCapture(video_path)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = frame_count / fps
+    video.release()
+    return duration
+
 def get_detected_sequences(output_dir):
     """Find all saved GIFs in the processed_frames/detected_sequences subfolder"""
     # Look in the correct nested directory structure
