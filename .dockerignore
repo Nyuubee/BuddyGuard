@@ -12,4 +12,4 @@ venv/
 .gitignore
 .vscode/
 output/
-models/  # You might want to exclude large model files if they're not needed in the image
+saves/processed_videos.json
