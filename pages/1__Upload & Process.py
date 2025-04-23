@@ -2,6 +2,7 @@
 
 import os
 import json
+import time
 import streamlit as st
 from pytubefix import YouTube
 from slugify import slugify
@@ -49,44 +50,12 @@ def load_models_once():
         with st.spinner("Loading AI models (this may take a minute)..."):
             st.session_state.models = load_models()
 
-
 def progress_with_cancel_check(update_fn):
     """Wrapper for progress callback that checks for cancellation."""
     if st.session_state.cancel_processing:
         st.warning("Process cancelled by user")
         st.stop()
     update_fn()
-
-
-# def download_youtube_video(youtube_url):
-#     """Downloads a YouTube video and returns the local file path and video name."""
-#     try:
-#         yt = YouTube(
-#             youtube_url,
-#             on_progress_callback=lambda stream, chunk, bytes_remaining: st.session_state.download_progress.progress(
-#                 1 - (bytes_remaining / stream.filesize)
-#             ),
-#         )
-#         video_stream = yt.streams.filter(file_extension='mp4').first()
-#         if video_stream:
-#             safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
-#             video_name = safe_title[:50]
-#             output_dir = os.path.join("output", video_name)
-#             os.makedirs(output_dir, exist_ok=True)
-#             video_path = os.path.join(output_dir, "video.mp4")
-#
-#             st.session_state.download_progress = st.progress(0)
-#             with st.spinner(f"Downloading: {yt.title[:50]}..."):
-#                 video_stream.download(output_path=output_dir, filename="video.mp4")
-#             st.session_state.download_progress.empty()
-#             return video_path, video_name, output_dir
-#         else:
-#             st.error("No suitable video stream found")
-#             return None, None, None
-#     except Exception as e:
-#         st.error(f"Error downloading video: {str(e)}")
-#         return None, None, None
-
 
 def download_youtube_video(youtube_url):
     """Downloads a YouTube video and returns the local file path and video name."""
@@ -124,19 +93,6 @@ def download_youtube_video(youtube_url):
         st.error(f"Error downloading video: {str(e)}")
         return None, None, None
 
-
-# def save_uploaded_video(uploaded_file):
-#     """Saves the uploaded video file and returns the local file path and video name."""
-#     video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
-#     output_dir = os.path.join("output", video_name)
-#     os.makedirs(output_dir, exist_ok=True)
-#     video_path = os.path.join(output_dir, f"{video_name}.mp4")
-#     with st.spinner("Saving uploaded video..."):
-#         with open(video_path, "wb") as f:
-#             f.write(uploaded_file.getbuffer())
-#     return video_path, video_name, output_dir
-
-
 def save_uploaded_video(uploaded_file):
     """Saves the uploaded video file and returns the local file path and video name."""
     video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
@@ -159,9 +115,9 @@ def save_uploaded_video(uploaded_file):
 
     return video_path, video_name, output_dir
 
-
 def analyze_video(video_path, output_dir, models):
     """Analyzes the video content."""
+    start_time = time.time()  # Track start time
     progress_bar = st.progress(0)
     processing_status = st.empty()
     st.session_state.cancel_processing = False
@@ -237,10 +193,10 @@ def analyze_video(video_path, output_dir, models):
             "final_confidence": final_confidence,
             "transcription": transcription,
             "highlighted_text": highlighted_text,
+            "processing_time": time.time() - start_time,  # Add processing time to results
         }
         save_results(output_dir, os.path.basename(output_dir), results)
         return results, processed_video_path
-
 
 def display_results(results, output_dir):
     """Displays the analysis results in the Streamlit app."""
@@ -319,7 +275,6 @@ def display_results(results, output_dir):
 
     with tab3:
         display_transcription_with_timestamps(results['transcription'], "results_video_player")
-
 
 # --- Main Streamlit App ---
 def main():
@@ -426,7 +381,10 @@ def main():
                     st.session_state.show_results = True
                     st.session_state.processed_video_path = processed_video_path
                     st.session_state.analysis_results = results
-                    st.success("Analysis complete!")
+                    processing_time = results['processing_time']
+                    minutes, seconds = divmod(processing_time, 60)
+                    time_str = f"{int(minutes)}m {int(seconds)}s" if minutes > 0 else f"{int(seconds)} seconds"
+                    st.success(f"Analysis complete! Processing time: {time_str}")
                     st.balloons()
 
     # Show results only after processing is complete
