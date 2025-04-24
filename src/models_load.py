@@ -4,9 +4,11 @@
 # IMPORTS
 # __________________________________________________________________
 import torch
+import streamlit as st
 from transformers import BertTokenizer, pipeline
 from src.models_def import BertClassifier, ResNetModel, ResNetLSTMModel
 
+# @st.cache_resource
 def load_models():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     bert_model_path = "./models/bert.pth"

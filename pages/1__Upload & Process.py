@@ -1,5 +1,5 @@
 # pages/1__Upload & Process.py
-
+import logging
 import os
 import json
 import time
@@ -41,6 +41,9 @@ if 'download_progress' not in st.session_state:
     st.session_state.download_progress = None
 if 'models' not in st.session_state:
     st.session_state.models = None
+
+# At the top of your file
+CLEANUP_TEMP_FILES = True  # Can be made configurable via st.toggle()
 
 
 # --- Helper Functions ---
@@ -115,9 +118,46 @@ def save_uploaded_video(uploaded_file):
 
     return video_path, video_name, output_dir
 
+def cleanup_temp_files(output_dir):
+    """Remove temporary files after video processing while preserving essential results."""
+    try:
+        # Files to remove
+        temp_files = [
+            os.path.join(output_dir, "video.mp4"),  # Original video
+            os.path.join(output_dir, "output_audio.wav"),  # Temporary audio
+            os.path.join(output_dir, f"{os.path.basename(output_dir)}.mp4")  # Original uploaded file if exists
+        ]
+
+        # Directories to clean
+        temp_dirs = [
+            os.path.join(output_dir, "processed_frames")  # Frame images
+        ]
+
+        # Remove files
+        for file_path in temp_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Removed temporary file: {file_path}")
+
+        # Clean directories (remove contents but keep directory structure)
+        for dir_path in temp_dirs:
+            if os.path.exists(dir_path):
+                for file_name in os.listdir(dir_path):
+                    file_path = os.path.join(dir_path, file_name)
+                    try:
+                        if os.path.isfile(file_path) and not file_name.endswith('.gif'):  # Keep GIFs
+                            os.remove(file_path)
+                            logging.info(f"Removed temporary frame: {file_path}")
+                    except Exception as e:
+                        st.warning(f"Couldn't remove {file_path}: {str(e)}")
+
+    except Exception as e:
+        st.warning(f"Cleanup warning: {str(e)}")
+        raise
+
 def analyze_video(video_path, output_dir, models):
-    """Analyzes the video content."""
-    start_time = time.time()  # Track start time
+    """Analyzes the video content with automatic cleanup of temporary files."""
+    start_time = time.time()
     progress_bar = st.progress(0)
     processing_status = st.empty()
     st.session_state.cancel_processing = False
@@ -133,70 +173,84 @@ def analyze_video(video_path, output_dir, models):
             st.warning("Process cancelled by user")
             st.stop()
 
-    with processing_status.container():
-        st.spinner(f"Analyzing video: {os.path.basename(video_path)}")
-        if st.button("Cancel Process", type="secondary", use_container_width=True, key="cancel_btn"):
-            st.session_state.cancel_processing = True
-            st.warning("Cancelling process...")
-            st.stop()
+    try:
+        with processing_status.container():
+            st.spinner(f"Analyzing video: {os.path.basename(video_path)}")
+            if st.button("Cancel Process", type="secondary", use_container_width=True, key="cancel_btn"):
+                st.session_state.cancel_processing = True
+                st.warning("Cancelling process...")
+                st.stop()
 
-        with st.spinner("Extracting audio..."):
-            audio_path = os.path.join(output_dir, "output_audio.wav")
-            extract_audio(video_path, audio_path)
-            update_progress()
+            with st.spinner("Extracting audio..."):
+                audio_path = os.path.join(output_dir, "output_audio.wav")
+                extract_audio(video_path, audio_path)
+                update_progress()
 
-        with st.spinner("Transcribing audio..."):
-            transcription = transcribe_audio(audio_path, models['whisper_model'])
-            update_progress()
+            with st.spinner("Transcribing audio..."):
+                transcription = transcribe_audio(audio_path, models['whisper_model'])
+                update_progress()
 
-        with st.spinner("Analyzing text content..."):
-            text_label, harmful_conf_text, safe_conf_text, highlighted_text = classify_text(
-                transcription, models['bert_model'], models['tokenizer'], models['device']
-            )
-            update_progress()
+            with st.spinner("Analyzing text content..."):
+                text_label, harmful_conf_text, safe_conf_text, highlighted_text = classify_text(
+                    transcription, models['bert_model'], models['tokenizer'], models['device']
+                )
+                update_progress()
 
-        with st.spinner("Analyzing video frames..."):
-            frames_path = os.path.join(output_dir, "processed_frames")
-            frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
-                video_path,
-                frames_path,
-                models['resnet_model'],
-                models['class_names'],
-                sequence_length=16,
-                progress_callback=lambda: progress_with_cancel_check(update_progress),
-            )
+            with st.spinner("Analyzing video frames..."):
+                frames_path = os.path.join(output_dir, "processed_frames")
+                frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
+                    video_path,
+                    frames_path,
+                    models['resnet_model'],
+                    models['class_names'],
+                    sequence_length=16,
+                    progress_callback=lambda: progress_with_cancel_check(update_progress),
+                )
 
-        with st.spinner("Calculating final results..."):
-            average_confidence_by_class = calculate_average_scores(confidence_scores_by_class)
-            harmful_score_resnet = average_confidence_by_class.get('Violence', 0.0)
-            safe_score_resnet = average_confidence_by_class.get('Safe', 0.0)
+            with st.spinner("Calculating final results..."):
+                average_confidence_by_class = calculate_average_scores(confidence_scores_by_class)
+                harmful_score_resnet = average_confidence_by_class.get('Violence', 0.0)
+                safe_score_resnet = average_confidence_by_class.get('Safe', 0.0)
 
-            bert_scores = {'safe': safe_conf_text, 'harmful': harmful_conf_text}
-            resnet_scores = {'safe': safe_score_resnet, 'harmful': harmful_score_resnet}
-            final_prediction, final_confidence = weighted_fusion(
-                bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5
-            )
+                bert_scores = {'safe': safe_conf_text, 'harmful': harmful_conf_text}
+                resnet_scores = {'safe': safe_score_resnet, 'harmful': harmful_score_resnet}
+                final_prediction, final_confidence = weighted_fusion(
+                    bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5
+                )
 
-        with st.spinner("Generating processed video..."):
-            processed_video_path = os.path.join(output_dir, f"processed_{os.path.basename(output_dir)}.mp4")
-            combine_frames_to_video(frames_path, processed_video_path, frame_count, audio_path)
-            update_progress()
+            with st.spinner("Generating processed video..."):
+                processed_video_path = os.path.join(output_dir, f"processed_{os.path.basename(output_dir)}.mp4")
+                combine_frames_to_video(frames_path, processed_video_path, frame_count, audio_path)
+                update_progress()
 
-        results = {
-            "harmful_score_resnet": harmful_score_resnet,
-            "safe_score_resnet": safe_score_resnet,
-            "resnet_scores": resnet_scores,
-            "harmful_conf_text": harmful_conf_text,
-            "safe_conf_text": safe_conf_text,
-            "bert_scores": bert_scores,
-            "final_prediction": final_prediction,
-            "final_confidence": final_confidence,
-            "transcription": transcription,
-            "highlighted_text": highlighted_text,
-            "processing_time": time.time() - start_time,  # Add processing time to results
-        }
-        save_results(output_dir, os.path.basename(output_dir), results)
-        return results, processed_video_path
+            results = {
+                "harmful_score_resnet": harmful_score_resnet,
+                "safe_score_resnet": safe_score_resnet,
+                "resnet_scores": resnet_scores,
+                "harmful_conf_text": harmful_conf_text,
+                "safe_conf_text": safe_conf_text,
+                "bert_scores": bert_scores,
+                "final_prediction": final_prediction,
+                "final_confidence": final_confidence,
+                "transcription": transcription,
+                "highlighted_text": highlighted_text,
+                "processing_time": time.time() - start_time,
+            }
+            save_results(output_dir, os.path.basename(output_dir), results)
+
+            if CLEANUP_TEMP_FILES:
+                cleanup_temp_files(output_dir)
+
+            return results, processed_video_path
+
+    except Exception as e:
+        st.error(f"Error during processing: {str(e)}")
+        # Attempt cleanup even if processing failed
+        try:
+            cleanup_temp_files()
+        except Exception as cleanup_error:
+            st.warning(f"Additional error during cleanup: {str(cleanup_error)}")
+        raise e
 
 def display_results(results, output_dir):
     """Displays the analysis results in the Streamlit app."""
