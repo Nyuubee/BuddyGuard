@@ -1,4 +1,5 @@
 # pages/1__Upload & Process.py
+import glob
 import logging
 import os
 import json
@@ -44,7 +45,6 @@ if 'models' not in st.session_state:
 
 # At the top of your file
 CLEANUP_TEMP_FILES = True  # Can be made configurable via st.toggle()
-
 
 # --- Helper Functions ---
 def analyze_video(video_path, output_dir, models):
@@ -279,8 +279,8 @@ def download_youtube_video(youtube_url):
         if video_stream:
             safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
             video_name = safe_title[:50]
-            output_dir = os.path.join("output", video_name)
-            os.makedirs(output_dir, exist_ok=True)
+            # Only create new folder if processing output exists in existing folder
+            output_dir, video_name = get_unique_output_dir("output", video_name, check_processing_output=True)
             video_path = os.path.join(output_dir, "video.mp4")
 
             st.session_state.download_progress = st.progress(0)
@@ -295,11 +295,53 @@ def download_youtube_video(youtube_url):
         st.error(f"Error downloading video: {str(e)}")
         return None, None, None
 
+def get_unique_output_dir(base_dir, video_name, check_processing_output=False):
+    """
+    Creates a unique output directory.
+    If check_processing_output is True, will only create new folder if processing output exists.
+    """
+    counter = 1
+    original_name = video_name
+
+    # First try with the original name
+    output_dir = os.path.join(base_dir, video_name)
+
+    # If we're not checking for processing output or if no processing output exists
+    if not check_processing_output or not processing_output_exists(output_dir):
+        os.makedirs(output_dir, exist_ok=True)
+        return output_dir, video_name
+
+    # If processing output exists, start incrementing
+    while True:
+        video_name = f"{original_name} ({counter})"
+        output_dir = os.path.join(base_dir, video_name)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir)
+            return output_dir, video_name
+        # If folder exists but has no processing output, use it
+        if not processing_output_exists(output_dir):
+            return output_dir, video_name
+        counter += 1
+
 def load_models_once():
     """Load models only once and store in session state."""
     if st.session_state.models is None:
         with st.spinner("Loading AI models (this may take a minute)..."):
             st.session_state.models = load_models()
+
+def processing_output_exists(output_dir):
+    """Check if processing output files already exist in the directory."""
+    # Check for the processed video file
+    processed_video_pattern = os.path.join(output_dir, "processed_*.mp4")
+    if glob.glob(processed_video_pattern):
+        return True
+
+    # Check for results JSON file
+    results_file = os.path.join(output_dir, "results.json")
+    if os.path.exists(results_file):
+        return True
+
+    return False
 
 def progress_with_cancel_check(update_fn):
     """Wrapper for progress callback that checks for cancellation."""
@@ -311,8 +353,8 @@ def progress_with_cancel_check(update_fn):
 def save_uploaded_video(uploaded_file):
     """Saves the uploaded video file and returns the local file path and video name."""
     video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
-    output_dir = os.path.join("output", video_name)
-    os.makedirs(output_dir, exist_ok=True)
+    # Only create new folder if processing output exists in existing folder
+    output_dir, video_name = get_unique_output_dir("output", video_name, check_processing_output=True)
     video_path = os.path.join(output_dir, f"{video_name}.mp4")
 
     with st.spinner("Saving uploaded video..."):
@@ -323,9 +365,11 @@ def save_uploaded_video(uploaded_file):
         duration = get_video_duration(video_path)
         if duration < 10:
             os.remove(video_path)
+            os.rmdir(output_dir)  # Clean up the empty directory
             raise ValueError(f"Video is too short ({duration:.1f} seconds). Minimum length is 10 seconds.")
         if duration > 180:
             os.remove(video_path)
+            os.rmdir(output_dir)  # Clean up the empty directory
             raise ValueError(f"Video is too long ({duration:.1f} seconds). Maximum length is 180 seconds.")
 
     return video_path, video_name, output_dir
