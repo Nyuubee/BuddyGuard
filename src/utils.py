@@ -32,7 +32,6 @@ def add_annotation_to_frame(frame, pred, prob, frame_count, fps, class_names):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
     return annotated_frame
 
-
 def save_sequence_as_gif(frames, preds, probs, frame_numbers, fps, output_dir, sequence_id, video_name, class_names):
     """Save an annotated sequence as GIF"""
     os.makedirs(output_dir, exist_ok=True)
@@ -119,7 +118,7 @@ def save_results(output_dir, video_name, results):
     history_file = "./saves/processed_videos.json"
     os.makedirs("./saves", exist_ok=True)
 
-    # Convert all tensors in results to serializable formats
+    # Convert results to serializable format
     serializable_results = {}
     for key, value in results.items():
         if isinstance(value, (torch.Tensor, torch.nn.Parameter)):
@@ -131,17 +130,39 @@ def save_results(output_dir, video_name, results):
         else:
             serializable_results[key] = value
 
+    # Load existing history
     if os.path.exists(history_file):
         with open(history_file, "r") as f:
             history = json.load(f)
     else:
         history = {}
 
+    # Add new result
     history[video_name] = serializable_results
 
+    # Limit history to last 5 entries and clean up old files
+    if len(history) > 5:
+        # Sort by processing time (newest first)
+        sorted_keys = sorted(history.keys(),
+                             key=lambda x: history[x].get('processing_time', 0),
+                             reverse=True)
+
+        # Keep only the 5 newest
+        history = {k: history[k] for k in sorted_keys[:5]}
+
+        # Clean up files for removed entries
+        for old_key in sorted_keys[5:]:
+            old_dir = os.path.join("output", os.path.splitext(old_key)[0])
+            try:
+                if os.path.exists(old_dir):
+                    import shutil
+                    shutil.rmtree(old_dir)
+            except Exception as e:
+                print(f"Warning: Could not clean up {old_dir}: {str(e)}")
+
+    # Save the limited history
     with open(history_file, "w") as f:
         json.dump(history, f, cls=NumpyTypeEncoder, indent=4)
-
 
 def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.4, resnet_weight=0.6):
     # Give more weight to visual violence detection
