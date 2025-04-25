@@ -32,36 +32,71 @@ def add_annotation_to_frame(frame, pred, prob, frame_count, fps, class_names):
                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
     return annotated_frame
 
-def save_sequence_as_gif(frames, preds, probs, frame_numbers, fps, output_dir, sequence_id, video_name, class_names):
-    """Save an annotated sequence as GIF"""
-    os.makedirs(output_dir, exist_ok=True)
-    gif_path = os.path.join(output_dir, f"{video_name}_seq_{sequence_id}_{class_names[preds[-1]]}.gif")
+def calculate_average_scores(confidence_scores_by_class):
+    averages = {}
+    for class_name, scores in confidence_scores_by_class.items():
+        if isinstance(scores, (list, tuple)):  # If it's already a list
+            averages[class_name] = sum(scores) / len(scores) if scores else 0.0
+        else:  # If it's a single float/numpy value
+            averages[class_name] = float(scores)
+    return averages
 
-    pil_frames = []
-    for i, frame in enumerate(frames):
-        annotated_frame = add_annotation_to_frame(
-            frame, preds[i], probs[i], frame_numbers[i], fps, class_names
-        )
-        img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+def create_clickable_blog_post_with_image(title, url, summary, image_url, fixed_width="500px", fixed_height="400px"):
+    # Creates a clickable blog post element with an image preview and fixed size.
+    st.markdown(
+        f"""
+        <div style="width: {fixed_width}; height: {fixed_height}; border: 1px solid #e0e0e0; padding: 10px; margin-bottom: 10px; border-radius: 5px; display: flex; flex-direction: column;">
+            <a href="{url}" target="_blank" style="text-decoration: none; display: block; flex-grow: 1;">
+                <img src="{image_url}" alt="{title}" style="width: 100%; max-height: 200px; object-fit: cover; border-radius: 5px; margin-bottom: 10px;">
+                <h3 style="margin-top: 0;">{title}</h3>
+            </a>
+            <p style="flex-grow: 1; overflow: hidden;">{summary}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+     )
 
-        # Check aspect ratio of the original frame
-        height, width = frame.shape[:2]
-        is_portrait = height > width
+def get_detected_sequences(output_dir):
+    """Find all saved GIFs in the processed_frames/detected_sequences subfolder"""
+    # Look in the correct nested directory structure
+    gif_dir = os.path.join(output_dir, "processed_frames", "detected_sequences")
+    if not os.path.exists(gif_dir):
+        return []
 
-        # Resize based on aspect ratio
-        if is_portrait:
-            # Portrait (9:16) - maintain height but adjust width
-            target_height = 480
-            target_width = int(target_height * width / height)
-            pil_frames.append(Image.fromarray(img).resize((target_width, target_height)))
-        else:
-            # Landscape (16:9)
-            target_width = 480
-            target_height = 270
-            pil_frames.append(Image.fromarray(img).resize((target_width, target_height)))
+    return [
+        {
+            'gif_path': os.path.join(gif_dir, f),
+            'name': f.replace('.gif', '')
+        }
+        for f in sorted(os.listdir(gif_dir))
+        if f.endswith('.gif')
+    ]
 
-    imageio.mimsave(gif_path, pil_frames, duration=200, loop=0)
-    return gif_path
+def get_total_frames(video_path):
+  cap = cv2.VideoCapture(video_path)
+  total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
+  cap.release()
+  return total
+
+def get_video_duration(video_path):
+    """Get the duration of a video in seconds."""
+    import cv2
+    video = cv2.VideoCapture(video_path)
+    fps = video.get(cv2.CAP_PROP_FPS)
+    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
+    duration = frame_count / fps
+    video.release()
+    return duration
+
+def is_portrait_video(video_path):
+    cap = cv2.VideoCapture(video_path)
+    ret, frame = cap.read()
+    if ret:
+        height, width, _ = frame.shape
+        cap.release()
+        return height > width
+    cap.release()
+    return False
 
 class NumpyTypeEncoder(json.JSONEncoder):
     def default(self, obj):
@@ -82,88 +117,6 @@ def preprocess_image(image):
   ])
   return transform(image)
 
-def get_total_frames(video_path):
-  cap = cv2.VideoCapture(video_path)
-  total = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
-  cap.release()
-  return total
-
-# function to select diverse frames to avoid showing similar ones
-def select_diverse_frames(nsfw_frames, max_frames=5):
-  if not nsfw_frames:
-    return []
-
-  if len(nsfw_frames) <= max_frames:
-    return nsfw_frames
-
-  # Sort by confidence first
-  sorted_frames = sorted(nsfw_frames, key=lambda x: x['confidence'], reverse=True)
-
-  # Take top frame and then select frames that are spaced out
-  selected = [sorted_frames[0]]
-
-  # Try to select frames that are spaced out
-  spacing = max(1, len(nsfw_frames) // max_frames)
-  remaining_slots = max_frames - 1
-
-  for i in range(spacing, len(sorted_frames), spacing):
-    if remaining_slots <= 0:
-      break
-    selected.append(sorted_frames[i])
-    remaining_slots -= 1
-
-  return selected
-
-def save_results(output_dir, video_name, results):
-    history_file = "./saves/processed_videos.json"
-    os.makedirs("./saves", exist_ok=True)
-
-    # Convert results to serializable format
-    serializable_results = {}
-    for key, value in results.items():
-        if isinstance(value, (torch.Tensor, torch.nn.Parameter)):
-            serializable_results[key] = value.cpu().detach().numpy().tolist()
-        elif isinstance(value, np.ndarray):
-            serializable_results[key] = value.tolist()
-        elif isinstance(value, (np.float32, np.float64)):
-            serializable_results[key] = float(value)
-        else:
-            serializable_results[key] = value
-
-    # Load existing history
-    if os.path.exists(history_file):
-        with open(history_file, "r") as f:
-            history = json.load(f)
-    else:
-        history = {}
-
-    # Add new result
-    history[video_name] = serializable_results
-
-    # Limit history to last 5 entries and clean up old files
-    if len(history) > 5:
-        # Sort by processing time (newest first)
-        sorted_keys = sorted(history.keys(),
-                             key=lambda x: history[x].get('processing_time', 0),
-                             reverse=True)
-
-        # Keep only the 5 newest
-        history = {k: history[k] for k in sorted_keys[:5]}
-
-        # Clean up files for removed entries
-        for old_key in sorted_keys[5:]:
-            old_dir = os.path.join("output", os.path.splitext(old_key)[0])
-            try:
-                if os.path.exists(old_dir):
-                    import shutil
-                    shutil.rmtree(old_dir)
-            except Exception as e:
-                print(f"Warning: Could not clean up {old_dir}: {str(e)}")
-
-    # Save the limited history
-    with open(history_file, "w") as f:
-        json.dump(history, f, cls=NumpyTypeEncoder, indent=4)
-
 def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.4, resnet_weight=0.6):
     # Give more weight to visual violence detection
     if resnet_scores['harmful'] > 0.3:  # If violence is detected with >30% confidence
@@ -176,15 +129,6 @@ def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.4, resnet_weight=0
     final_confidence = combined_harmful if final_prediction == "Harmful" else 1 - combined_harmful
 
     return final_prediction, final_confidence
-
-def calculate_average_scores(confidence_scores_by_class):
-    averages = {}
-    for class_name, scores in confidence_scores_by_class.items():
-        if isinstance(scores, (list, tuple)):  # If it's already a list
-            averages[class_name] = sum(scores) / len(scores) if scores else 0.0
-        else:  # If it's a single float/numpy value
-            averages[class_name] = float(scores)
-    return averages
 
 def save_to_pdf(video_name, history_file):  # Changed parameter name from result_path to history_file
     output_dir = os.path.join("saves", "reports", video_name)
@@ -241,56 +185,111 @@ def save_to_pdf(video_name, history_file):  # Changed parameter name from result
     pdf.output(pdf_path)
     return pdf_path
 
-def is_portrait_video(video_path):
-    cap = cv2.VideoCapture(video_path)
-    ret, frame = cap.read()
-    if ret:
-        height, width, _ = frame.shape
-        cap.release()
-        return height > width
-    cap.release()
-    return False
+def save_sequence_as_gif(frames, preds, probs, frame_numbers, fps, output_dir, sequence_id, video_name, class_names):
+    """Save an annotated sequence as GIF"""
+    os.makedirs(output_dir, exist_ok=True)
+    gif_path = os.path.join(output_dir, f"{video_name}_seq_{sequence_id}_{class_names[preds[-1]]}.gif")
 
-def get_video_duration(video_path):
-    """Get the duration of a video in seconds."""
-    import cv2
-    video = cv2.VideoCapture(video_path)
-    fps = video.get(cv2.CAP_PROP_FPS)
-    frame_count = int(video.get(cv2.CAP_PROP_FRAME_COUNT))
-    duration = frame_count / fps
-    video.release()
-    return duration
+    pil_frames = []
+    for i, frame in enumerate(frames):
+        annotated_frame = add_annotation_to_frame(
+            frame, preds[i], probs[i], frame_numbers[i], fps, class_names
+        )
+        img = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
 
-def get_detected_sequences(output_dir):
-    """Find all saved GIFs in the processed_frames/detected_sequences subfolder"""
-    # Look in the correct nested directory structure
-    gif_dir = os.path.join(output_dir, "processed_frames", "detected_sequences")
-    if not os.path.exists(gif_dir):
-        return []
+        # Check aspect ratio of the original frame
+        height, width = frame.shape[:2]
+        is_portrait = height > width
 
-    return [
-        {
-            'gif_path': os.path.join(gif_dir, f),
-            'name': f.replace('.gif', '')
-        }
-        for f in sorted(os.listdir(gif_dir))
-        if f.endswith('.gif')
-    ]
+        # Resize based on aspect ratio
+        if is_portrait:
+            # Portrait (9:16) - maintain height but adjust width
+            target_height = 480
+            target_width = int(target_height * width / height)
+            pil_frames.append(Image.fromarray(img).resize((target_width, target_height)))
+        else:
+            # Landscape (16:9)
+            target_width = 480
+            target_height = 270
+            pil_frames.append(Image.fromarray(img).resize((target_width, target_height)))
 
-def create_clickable_blog_post_with_image(title, url, summary, image_url, fixed_width="500px", fixed_height="400px"):
-    # Creates a clickable blog post element with an image preview and fixed size.
-    st.markdown(
-        f"""
-        <div style="width: {fixed_width}; height: {fixed_height}; border: 1px solid #e0e0e0; padding: 10px; margin-bottom: 10px; border-radius: 5px; display: flex; flex-direction: column;">
-            <a href="{url}" target="_blank" style="text-decoration: none; display: block; flex-grow: 1;">
-                <img src="{image_url}" alt="{title}" style="width: 100%; max-height: 200px; object-fit: cover; border-radius: 5px; margin-bottom: 10px;">
-                <h3 style="margin-top: 0;">{title}</h3>
-            </a>
-            <p style="flex-grow: 1; overflow: hidden;">{summary}</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-     )
+    imageio.mimsave(gif_path, pil_frames, duration=200, loop=0)
+    return gif_path
+
+def save_results(output_dir, video_name, results):
+    history_file = "./saves/processed_videos.json"
+    os.makedirs("./saves", exist_ok=True)
+
+    # Convert results to serializable format
+    serializable_results = {}
+    for key, value in results.items():
+        if isinstance(value, (torch.Tensor, torch.nn.Parameter)):
+            serializable_results[key] = value.cpu().detach().numpy().tolist()
+        elif isinstance(value, np.ndarray):
+            serializable_results[key] = value.tolist()
+        elif isinstance(value, (np.float32, np.float64)):
+            serializable_results[key] = float(value)
+        else:
+            serializable_results[key] = value
+
+    # Load existing history
+    if os.path.exists(history_file):
+        with open(history_file, "r") as f:
+            history = json.load(f)
+    else:
+        history = {}
+
+    # Add new result
+    history[video_name] = serializable_results
+
+    # Limit history to last 5 entries and clean up old files
+    if len(history) > 5:
+        # Sort by processing time (newest first)
+        sorted_keys = sorted(history.keys(),
+                             key=lambda x: history[x].get('processing_time', 0),
+                             reverse=True)
+
+        # Keep only the 5 newest
+        history = {k: history[k] for k in sorted_keys[:5]}
+
+        # Clean up files for removed entries
+        for old_key in sorted_keys[5:]:
+            old_dir = os.path.join("output", os.path.splitext(old_key)[0])
+            try:
+                if os.path.exists(old_dir):
+                    import shutil
+                    shutil.rmtree(old_dir)
+            except Exception as e:
+                print(f"Warning: Could not clean up {old_dir}: {str(e)}")
+
+    # Save the limited history
+    with open(history_file, "w") as f:
+        json.dump(history, f, cls=NumpyTypeEncoder, indent=4)
+
+def select_diverse_frames(nsfw_frames, max_frames=5):
+  if not nsfw_frames:
+    return []
+
+  if len(nsfw_frames) <= max_frames:
+    return nsfw_frames
+
+  # Sort by confidence first
+  sorted_frames = sorted(nsfw_frames, key=lambda x: x['confidence'], reverse=True)
+
+  # Take top frame and then select frames that are spaced out
+  selected = [sorted_frames[0]]
+
+  # Try to select frames that are spaced out
+  spacing = max(1, len(nsfw_frames) // max_frames)
+  remaining_slots = max_frames - 1
+
+  for i in range(spacing, len(sorted_frames), spacing):
+    if remaining_slots <= 0:
+      break
+    selected.append(sorted_frames[i])
+    remaining_slots -= 1
+
+  return selected
 
 blog_posts = [
         {

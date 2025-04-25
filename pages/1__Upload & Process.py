@@ -1,18 +1,17 @@
 # pages/1__Upload & Process.py
+
 import glob
 import logging
 import os
-import json
 import time
 import streamlit as st
 from pytubefix import YouTube
 from slugify import slugify
 
 # Import custom modules
-from src.models_load import load_models
 from src.proc_audio import extract_audio, transcribe_audio, display_transcription_with_timestamps
 from src.proc_text import classify_text
-from src.proc_video import extract_frames, combine_frames_to_video
+from src.proc_video import combine_frames_to_video
 from src.proc_video_sequence import extract_frame_sequences
 from src.utils import (
     is_portrait_video,
@@ -139,7 +138,7 @@ def analyze_video(video_path, output_dir, models):
         st.error(f"Error during processing: {str(e)}")
         # Attempt cleanup even if processing failed
         try:
-            cleanup_temp_files()
+            cleanup_temp_files(output_dir)
         except Exception as cleanup_error:
             st.warning(f"Additional error during cleanup: {str(cleanup_error)}")
         raise e
@@ -323,12 +322,6 @@ def get_unique_output_dir(base_dir, video_name, check_processing_output=False):
             return output_dir, video_name
         counter += 1
 
-def load_models_once():
-    """Load models only once and store in session state."""
-    if st.session_state.models is None:
-        with st.spinner("Loading AI models (this may take a minute)..."):
-            st.session_state.models = load_models()
-
 def processing_output_exists(output_dir):
     """Check if processing output files already exist in the directory."""
     # Check for the processed video file
@@ -379,11 +372,12 @@ def main():
     st.title("Upload & Process Video")
 
     # Load models
-    load_models_once()
-    if st.session_state.models is None:
-        st.error("Failed to load AI models.")
+    # Use pre-loaded models instead of loading here
+    if 'models' not in st.session_state or st.session_state.models is None:
+        st.error("AI models failed to load. Please refresh the page.")
         return
-    models = st.session_state.models
+
+    models = st.session_state.models  # Use the pre-loaded models
 
     # Add CSS to control video size
     st.markdown(

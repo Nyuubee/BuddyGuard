@@ -1,10 +1,11 @@
 ### Home.py
 
-
 ### IMPORTS
 ### ________________________________________________________________
 import random
 import streamlit as st
+
+from src.models_load import load_models
 from src.utils import create_clickable_blog_post_with_image, blog_posts
 from styles.styles import spacer
 
@@ -21,6 +22,11 @@ def main():
             'About': None
         }
     )
+
+    # Load models on startup
+    if 'models' not in st.session_state:
+        with st.spinner("Loading AI models (this may take a minute)..."):
+            st.session_state.models = load_models()
 
     # Center the image
     st.markdown(
