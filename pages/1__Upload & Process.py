@@ -47,114 +47,6 @@ CLEANUP_TEMP_FILES = True  # Can be made configurable via st.toggle()
 
 
 # --- Helper Functions ---
-def load_models_once():
-    """Load models only once and store in session state."""
-    if st.session_state.models is None:
-        with st.spinner("Loading AI models (this may take a minute)..."):
-            st.session_state.models = load_models()
-
-def progress_with_cancel_check(update_fn):
-    """Wrapper for progress callback that checks for cancellation."""
-    if st.session_state.cancel_processing:
-        st.warning("Process cancelled by user")
-        st.stop()
-    update_fn()
-
-def download_youtube_video(youtube_url):
-    """Downloads a YouTube video and returns the local file path and video name."""
-    try:
-        yt = YouTube(
-            youtube_url,
-            on_progress_callback=lambda stream, chunk, bytes_remaining: st.session_state.download_progress.progress(
-                1 - (bytes_remaining / stream.filesize)
-            ),
-        )
-
-        # Check duration before downloading
-        if yt.length < 10:
-            raise ValueError(f"Video is too short ({yt.length} seconds). Minimum length is 10 seconds.")
-        if yt.length > 180:
-            raise ValueError(f"Video is too long ({yt.length} seconds). Maximum length is 180 seconds.")
-
-        video_stream = yt.streams.filter(file_extension='mp4').first()
-        if video_stream:
-            safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
-            video_name = safe_title[:50]
-            output_dir = os.path.join("output", video_name)
-            os.makedirs(output_dir, exist_ok=True)
-            video_path = os.path.join(output_dir, "video.mp4")
-
-            st.session_state.download_progress = st.progress(0)
-            with st.spinner(f"Downloading: {yt.title[:50]}..."):
-                video_stream.download(output_path=output_dir, filename="video.mp4")
-            st.session_state.download_progress.empty()
-            return video_path, video_name, output_dir
-        else:
-            st.error("No suitable video stream found")
-            return None, None, None
-    except Exception as e:
-        st.error(f"Error downloading video: {str(e)}")
-        return None, None, None
-
-def save_uploaded_video(uploaded_file):
-    """Saves the uploaded video file and returns the local file path and video name."""
-    video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
-    output_dir = os.path.join("output", video_name)
-    os.makedirs(output_dir, exist_ok=True)
-    video_path = os.path.join(output_dir, f"{video_name}.mp4")
-
-    with st.spinner("Saving uploaded video..."):
-        with open(video_path, "wb") as f:
-            f.write(uploaded_file.getbuffer())
-
-        # Check video duration
-        duration = get_video_duration(video_path)
-        if duration < 10:
-            os.remove(video_path)
-            raise ValueError(f"Video is too short ({duration:.1f} seconds). Minimum length is 10 seconds.")
-        if duration > 180:
-            os.remove(video_path)
-            raise ValueError(f"Video is too long ({duration:.1f} seconds). Maximum length is 180 seconds.")
-
-    return video_path, video_name, output_dir
-
-def cleanup_temp_files(output_dir):
-    """Remove temporary files after video processing while preserving essential results."""
-    try:
-        # Files to remove
-        temp_files = [
-            os.path.join(output_dir, "video.mp4"),  # Original video
-            os.path.join(output_dir, "output_audio.wav"),  # Temporary audio
-            os.path.join(output_dir, f"{os.path.basename(output_dir)}.mp4")  # Original uploaded file if exists
-        ]
-
-        # Directories to clean
-        temp_dirs = [
-            os.path.join(output_dir, "processed_frames")  # Frame images
-        ]
-
-        # Remove files
-        for file_path in temp_files:
-            if os.path.exists(file_path):
-                os.remove(file_path)
-                logging.info(f"Removed temporary file: {file_path}")
-
-        # Clean directories (remove contents but keep directory structure)
-        for dir_path in temp_dirs:
-            if os.path.exists(dir_path):
-                for file_name in os.listdir(dir_path):
-                    file_path = os.path.join(dir_path, file_name)
-                    try:
-                        if os.path.isfile(file_path) and not file_name.endswith('.gif'):  # Keep GIFs
-                            os.remove(file_path)
-                            logging.info(f"Removed temporary frame: {file_path}")
-                    except Exception as e:
-                        st.warning(f"Couldn't remove {file_path}: {str(e)}")
-
-    except Exception as e:
-        st.warning(f"Cleanup warning: {str(e)}")
-        raise
-
 def analyze_video(video_path, output_dir, models):
     """Analyzes the video content with automatic cleanup of temporary files."""
     start_time = time.time()
@@ -252,6 +144,43 @@ def analyze_video(video_path, output_dir, models):
             st.warning(f"Additional error during cleanup: {str(cleanup_error)}")
         raise e
 
+def cleanup_temp_files(output_dir):
+    """Remove temporary files after video processing while preserving essential results."""
+    try:
+        # Files to remove
+        temp_files = [
+            os.path.join(output_dir, "video.mp4"),  # Original video
+            os.path.join(output_dir, "output_audio.wav"),  # Temporary audio
+            os.path.join(output_dir, f"{os.path.basename(output_dir)}.mp4")  # Original uploaded file if exists
+        ]
+
+        # Directories to clean
+        temp_dirs = [
+            os.path.join(output_dir, "processed_frames")  # Frame images
+        ]
+
+        # Remove files
+        for file_path in temp_files:
+            if os.path.exists(file_path):
+                os.remove(file_path)
+                logging.info(f"Removed temporary file: {file_path}")
+
+        # Clean directories (remove contents but keep directory structure)
+        for dir_path in temp_dirs:
+            if os.path.exists(dir_path):
+                for file_name in os.listdir(dir_path):
+                    file_path = os.path.join(dir_path, file_name)
+                    try:
+                        if os.path.isfile(file_path) and not file_name.endswith('.gif'):  # Keep GIFs
+                            os.remove(file_path)
+                            logging.info(f"Removed temporary frame: {file_path}")
+                    except Exception as e:
+                        st.warning(f"Couldn't remove {file_path}: {str(e)}")
+
+    except Exception as e:
+        st.warning(f"Cleanup warning: {str(e)}")
+        raise
+
 def display_results(results, output_dir):
     """Displays the analysis results in the Streamlit app."""
     st.subheader("Analysis Results")
@@ -330,6 +259,77 @@ def display_results(results, output_dir):
     with tab3:
         display_transcription_with_timestamps(results['transcription'], "results_video_player")
 
+def download_youtube_video(youtube_url):
+    """Downloads a YouTube video and returns the local file path and video name."""
+    try:
+        yt = YouTube(
+            youtube_url,
+            on_progress_callback=lambda stream, chunk, bytes_remaining: st.session_state.download_progress.progress(
+                1 - (bytes_remaining / stream.filesize)
+            ),
+        )
+
+        # Check duration before downloading
+        if yt.length < 10:
+            raise ValueError(f"Video is too short ({yt.length} seconds). Minimum length is 10 seconds.")
+        if yt.length > 180:
+            raise ValueError(f"Video is too long ({yt.length} seconds). Maximum length is 180 seconds.")
+
+        video_stream = yt.streams.filter(file_extension='mp4').first()
+        if video_stream:
+            safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
+            video_name = safe_title[:50]
+            output_dir = os.path.join("output", video_name)
+            os.makedirs(output_dir, exist_ok=True)
+            video_path = os.path.join(output_dir, "video.mp4")
+
+            st.session_state.download_progress = st.progress(0)
+            with st.spinner(f"Downloading: {yt.title[:50]}..."):
+                video_stream.download(output_path=output_dir, filename="video.mp4")
+            st.session_state.download_progress.empty()
+            return video_path, video_name, output_dir
+        else:
+            st.error("No suitable video stream found")
+            return None, None, None
+    except Exception as e:
+        st.error(f"Error downloading video: {str(e)}")
+        return None, None, None
+
+def load_models_once():
+    """Load models only once and store in session state."""
+    if st.session_state.models is None:
+        with st.spinner("Loading AI models (this may take a minute)..."):
+            st.session_state.models = load_models()
+
+def progress_with_cancel_check(update_fn):
+    """Wrapper for progress callback that checks for cancellation."""
+    if st.session_state.cancel_processing:
+        st.warning("Process cancelled by user")
+        st.stop()
+    update_fn()
+
+def save_uploaded_video(uploaded_file):
+    """Saves the uploaded video file and returns the local file path and video name."""
+    video_name = slugify(os.path.splitext(uploaded_file.name)[0], lowercase=False, max_length=50)
+    output_dir = os.path.join("output", video_name)
+    os.makedirs(output_dir, exist_ok=True)
+    video_path = os.path.join(output_dir, f"{video_name}.mp4")
+
+    with st.spinner("Saving uploaded video..."):
+        with open(video_path, "wb") as f:
+            f.write(uploaded_file.getbuffer())
+
+        # Check video duration
+        duration = get_video_duration(video_path)
+        if duration < 10:
+            os.remove(video_path)
+            raise ValueError(f"Video is too short ({duration:.1f} seconds). Minimum length is 10 seconds.")
+        if duration > 180:
+            os.remove(video_path)
+            raise ValueError(f"Video is too long ({duration:.1f} seconds). Maximum length is 180 seconds.")
+
+    return video_path, video_name, output_dir
+
 # --- Main Streamlit App ---
 def main():
     st.title("Upload & Process Video")
@@ -378,17 +378,6 @@ def main():
         uploaded_file = st.file_uploader(
             "Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"], key="file_uploader"
         )
-
-        # if uploaded_file is not None:
-        #     if uploaded_file.size > 100 * 1024 * 1024:
-        #         st.error("File too large. Maximum size is 100MB.")
-        #     else:
-        #         video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
-        #         st.session_state.uploaded_video = video_path
-        #         st.session_state.video_name = video_name
-        #         st.session_state.output_dir = output_dir
-        #         st.session_state.processing_complete = False
-        #         st.session_state.show_results = False
 
         if uploaded_file is not None:
             if uploaded_file.size > 100 * 1024 * 1024:
