@@ -8,6 +8,9 @@ import torch.nn as nn
 import torchvision.models as models
 from transformers import BertForSequenceClassification
 
+from resnet_helper_functions import ResNetLSTM
+
+
 # Define the new attention-based classifier
 class BertClassifier(nn.Module):
   def __init__(self, dropout_rate=0.3):

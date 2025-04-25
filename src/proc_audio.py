@@ -1,11 +1,9 @@
-### src/proc_audio.py
+# src/proc_audio.py
 
 
-### IMPORTS
-### ________________________________________________________________
+# ________________________________________________________________
 import ffmpeg
 import streamlit as st
-from transformers import pipeline
 
 def extract_audio(video_path, audio_path):
     stream = ffmpeg.input(video_path)
@@ -73,5 +71,5 @@ def display_transcription_with_timestamps(transcription, video_id):
 
     st.markdown(f"<div style='font-size:18px;'>{formatted_transcription}</div>", unsafe_allow_html=True)
 
-### END
-### ________________________________________________________________
+# END
+# ________________________________________________________________

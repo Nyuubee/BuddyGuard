@@ -1,12 +1,12 @@
-### src/models_load.py
+# src/models_load.py
 
 
 # IMPORTS
 # __________________________________________________________________
 import torch
-import streamlit as st
+
 from transformers import BertTokenizer, pipeline
-from src.models_def import BertClassifier, ResNetModel, ResNetLSTMModel
+from src.models_def import BertClassifier
 
 # @st.cache_resource
 def load_models():
@@ -39,6 +39,5 @@ def load_models():
         'class_names': class_names,
         'device': device
     }
-
 
 ### END

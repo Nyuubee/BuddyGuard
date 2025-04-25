@@ -1,8 +1,8 @@
-### src/proc_video.py
+# src/proc_video.py
 
 
-### IMPORTS
-### ________________________________________________________________
+# IMPORTS
+# ________________________________________________________________
 import cv2
 import ffmpeg
 import os
@@ -170,5 +170,5 @@ def combine_frames_to_video(output_dir, output_video_path, frame_count, audio_pa
 
     os.remove(temp_video_path)
 
-### END
-### ________________________________________________________________
+# END
+# ________________________________________________________________
