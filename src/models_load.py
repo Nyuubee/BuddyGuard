@@ -13,7 +13,10 @@ def load_models():
     device = "cuda" if torch.cuda.is_available() else "cpu"
     bert_model_path = "./models/bert.pth"
     resnet_lstm_model_path = "./models/resnet50-lstm_10epoch(2).pt"  # Your ResNet-LSTM model
-    class_names = ['Safe', 'Violence']  # Updated class names
+    violence_class_names = ['Safe', 'Violence']
+    # New nudity model
+    nudity_model_path = "./models/resnet50_5epoch_0001lr_weight_decay_(final)(2).pt"  # Update with your actual path
+    nudity_class_names = ['nude', 'safe']
 
     # Load BERT model (unchanged)
     tokenizer = BertTokenizer.from_pretrained("bert-base-uncased")
@@ -24,19 +27,22 @@ def load_models():
     # Load Whisper model (unchanged)
     whisper_model = pipeline("automatic-speech-recognition", "openai/whisper-tiny.en", torch_dtype=torch.float16, device=device)
 
-    # Load ResNet-LSTM model
-    # resnet_lstm_model = ResNetLSTMModel(num_classes=len(class_names), device=device)
-    # # To this (only if you completely trust the model file source):
-    # resnet_lstm_model.load_state_dict(torch.load(resnet_lstm_model_path, map_location=device, weights_only=False))
-    resnet_lstm_model = torch.load(resnet_lstm_model_path, map_location=device, weights_only=False)
-    resnet_lstm_model.eval()
+    # Load Violence detection model
+    violence_model = torch.load(resnet_lstm_model_path, map_location=device, weights_only=False)
+    violence_model.eval()
+
+    # Load Nudity detection model
+    nudity_model = torch.load(nudity_model_path, map_location=device, weights_only=False)
+    nudity_model.eval()
 
     return {
         'tokenizer': tokenizer,
         'bert_model': bert_model,
         'whisper_model': whisper_model,
-        'resnet_model': resnet_lstm_model,  # Now using ResNet-LSTM
-        'class_names': class_names,
+        'violence_model': violence_model,
+        'nudity_model': nudity_model,
+        'violence_class_names': violence_class_names,
+        'nudity_class_names': nudity_class_names,
         'device': device
     }
 

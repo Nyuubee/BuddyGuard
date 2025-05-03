@@ -56,21 +56,28 @@ def create_clickable_blog_post_with_image(title, url, summary, image_url, fixed_
         unsafe_allow_html=True,
      )
 
-def get_detected_sequences(output_dir):
-    """Find all saved GIFs in the processed_frames/detected_sequences subfolder"""
-    # Look in the correct nested directory structure
-    gif_dir = os.path.join(output_dir, "processed_frames", "detected_sequences")
-    if not os.path.exists(gif_dir):
+
+def get_detected_sequences(output_dir, mode="violence"):
+    """Find all saved GIFs in the processed_frames subfolder"""
+    # Look in the correct directory structure
+    sequences_dir = os.path.join(output_dir, "processed_frames")
+    if not os.path.exists(sequences_dir):
         return []
 
-    return [
-        {
-            'gif_path': os.path.join(gif_dir, f),
-            'name': f.replace('.gif', '')
-        }
-        for f in sorted(os.listdir(gif_dir))
-        if f.endswith('.gif')
-    ]
+    # Find all GIF files
+    gif_files = []
+    for root, dirs, files in os.walk(sequences_dir):
+        for file in files:
+            if file.endswith('.gif'):
+                gif_files.append({
+                    'gif_path': os.path.join(root, file),
+                    'name': file.replace('.gif', '')
+                })
+
+    # Sort by filename to maintain order
+    gif_files.sort(key=lambda x: x['name'])
+
+    return gif_files
 
 def get_total_frames(video_path):
   cap = cv2.VideoCapture(video_path)
@@ -117,13 +124,30 @@ def preprocess_image(image):
   ])
   return transform(image)
 
-def weighted_fusion(bert_scores, resnet_scores, bert_weight=0.4, resnet_weight=0.6):
-    # Give more weight to visual violence detection
-    if resnet_scores['harmful'] > 0.3:  # If violence is detected with >30% confidence
-        resnet_weight = min(resnet_weight * 1.5, 0.8)  # Increase visual weight
 
+# In utils.py
+
+def weighted_fusion(bert_scores, visual_scores, mode="violence"):
+    """Updated fusion function to handle both violence and nudity modes"""
+    # Default weights
+    bert_weight = 0.4
+    visual_weight = 0.6
+
+    # Get the appropriate visual score based on mode
+    if mode == "violence":
+        visual_harmful = visual_scores.get('harmful', 0.0)
+        # Adjust weights for violence mode
+        if visual_harmful > 0.3:
+            visual_weight = min(visual_weight * 1.5, 0.8)
+    else:  # nudity mode
+        visual_harmful = visual_scores.get('nude', 0.0)
+        # Adjust weights for nudity mode
+        if visual_harmful > 0.7:  # Higher threshold for nudity
+            visual_weight = min(visual_weight * 1.2, 0.75)
+
+    # Calculate combined score
     combined_harmful = (bert_scores['harmful'] * bert_weight +
-                        resnet_scores['harmful'] * resnet_weight)
+                        visual_harmful * visual_weight)
 
     final_prediction = "Harmful" if combined_harmful > 0.5 else "Safe"
     final_confidence = combined_harmful if final_prediction == "Harmful" else 1 - combined_harmful

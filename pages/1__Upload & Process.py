@@ -10,6 +10,7 @@ from slugify import slugify
 
 # Import custom modules
 from src.proc_audio import extract_audio, transcribe_audio, display_transcription_with_timestamps
+from src.proc_nudity import extract_nudity_sequences
 from src.proc_text import classify_text
 from src.proc_video import combine_frames_to_video
 from src.proc_video_sequence import extract_frame_sequences
@@ -46,8 +47,15 @@ if 'models' not in st.session_state:
 CLEANUP_TEMP_FILES = True  # Can be made configurable via st.toggle()
 
 # --- Helper Functions ---
-def analyze_video(video_path, output_dir, models):
-    """Analyzes the video content with automatic cleanup of temporary files."""
+def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
+    """Analyzes the video content with automatic cleanup of temporary files.
+
+    Args:
+        video_path: Path to the video file
+        output_dir: Directory to store processed files
+        models: Dictionary of loaded models
+        mode: Detection mode ("Violence + Text" or "Nudity + Text")
+    """
     start_time = time.time()
     progress_bar = st.progress(0)
     processing_status = st.empty()
@@ -72,6 +80,7 @@ def analyze_video(video_path, output_dir, models):
                 st.warning("Cancelling process...")
                 st.stop()
 
+            # Common processing steps for both modes
             with st.spinner("Extracting audio..."):
                 audio_path = os.path.join(output_dir, "output_audio.wav")
                 extract_audio(video_path, audio_path)
@@ -87,26 +96,51 @@ def analyze_video(video_path, output_dir, models):
                 )
                 update_progress()
 
+            # Mode-specific video processing
             with st.spinner("Analyzing video frames..."):
                 frames_path = os.path.join(output_dir, "processed_frames")
-                frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
-                    video_path,
-                    frames_path,
-                    models['resnet_model'],
-                    models['class_names'],
-                    sequence_length=16,
-                    progress_callback=lambda: progress_with_cancel_check(update_progress),
-                )
+
+                if mode == "Violence + Text":
+                    frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
+                        video_path,
+                        frames_path,
+                        models['violence_model'],
+                        models['violence_class_names'],
+                        sequence_length=16,
+                        progress_callback=lambda: progress_with_cancel_check(update_progress),
+                    )
+                    # Prepare scores for violence mode
+                    harmful_score_visual = confidence_scores_by_class.get('Violence', 0.0)
+                    safe_score_visual = confidence_scores_by_class.get('Safe', 0.0)
+                else:  # Nudity + Text mode
+                    frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_nudity_sequences(
+                        video_path,
+                        frames_path,
+                        models['nudity_model'],
+                        models['nudity_class_names'],
+                        sequence_length=16,
+                        progress_callback=lambda: progress_with_cancel_check(update_progress),
+                    )
+                    # Prepare scores for nudity mode
+                    harmful_score_visual = confidence_scores_by_class.get('nude', 0.0)
+                    safe_score_visual = confidence_scores_by_class.get('safe', 0.0)
 
             with st.spinner("Calculating final results..."):
-                average_confidence_by_class = calculate_average_scores(confidence_scores_by_class)
-                harmful_score_resnet = average_confidence_by_class.get('Violence', 0.0)
-                safe_score_resnet = average_confidence_by_class.get('Safe', 0.0)
+                bert_scores = {
+                    'safe': safe_conf_text,
+                    'harmful': harmful_conf_text
+                }
 
-                bert_scores = {'safe': safe_conf_text, 'harmful': harmful_conf_text}
-                resnet_scores = {'safe': safe_score_resnet, 'harmful': harmful_score_resnet}
+                visual_scores = {
+                    'safe': safe_score_visual,
+                    'harmful': harmful_score_visual
+                }
+
+                # Use mode-specific fusion
                 final_prediction, final_confidence = weighted_fusion(
-                    bert_scores, resnet_scores, bert_weight=0.5, resnet_weight=0.5
+                    bert_scores,
+                    visual_scores,
+                    mode="violence" if mode == "Violence + Text" else "nudity"
                 )
 
             with st.spinner("Generating processed video..."):
@@ -114,10 +148,12 @@ def analyze_video(video_path, output_dir, models):
                 combine_frames_to_video(frames_path, processed_video_path, frame_count, audio_path)
                 update_progress()
 
+            # Prepare results dictionary
             results = {
-                "harmful_score_resnet": harmful_score_resnet,
-                "safe_score_resnet": safe_score_resnet,
-                "resnet_scores": resnet_scores,
+                "mode": mode,
+                "harmful_score_visual": harmful_score_visual,
+                "safe_score_visual": safe_score_visual,
+                "visual_scores": visual_scores,
                 "harmful_conf_text": harmful_conf_text,
                 "safe_conf_text": safe_conf_text,
                 "bert_scores": bert_scores,
@@ -127,6 +163,20 @@ def analyze_video(video_path, output_dir, models):
                 "highlighted_text": highlighted_text,
                 "processing_time": time.time() - start_time,
             }
+
+            # Add mode-specific keys for backward compatibility
+            if mode == "Violence + Text":
+                results.update({
+                    "harmful_score_resnet": harmful_score_visual,
+                    "safe_score_resnet": safe_score_visual,
+                    "resnet_scores": visual_scores
+                })
+            else:
+                results.update({
+                    "nude_score": harmful_score_visual,
+                    "safe_score_nudity": safe_score_visual
+                })
+
             save_results(output_dir, os.path.basename(output_dir), results)
 
             if CLEANUP_TEMP_FILES:
@@ -180,7 +230,7 @@ def cleanup_temp_files(output_dir):
         st.warning(f"Cleanup warning: {str(e)}")
         raise
 
-def display_results(results, output_dir):
+def display_results(results, output_dir, mode="Violence + Text"):
     """Displays the analysis results in the Streamlit app."""
     st.subheader("Analysis Results")
 
@@ -196,7 +246,7 @@ def display_results(results, output_dir):
         unsafe_allow_html=True,
     )
 
-    # Metrics row
+    # Metrics row - update to use mode-specific keys
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     with metric_col1:
         st.metric(
@@ -207,12 +257,13 @@ def display_results(results, output_dir):
             else f"{(0.5 - results['safe_conf_text']) * 200:.2f}%",
         )
     with metric_col2:
+        visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Text" else results['nude_score']
         st.metric(
-            "Visual Harmful",
-            f"{(1 - results['safe_score_resnet']) * 100:.2f}%",
-            f"{(0.5 - results['safe_score_resnet']) * 200:.2f}%"
-            if results['safe_score_resnet'] < 0.5
-            else f"{(0.5 - results['safe_score_resnet']) * 200:.2f}%",
+            "Visual Harmful" if mode == "Violence + Text" else "Nudity",
+            f"{visual_harmful * 100:.2f}%",
+            f"{(visual_harmful - 0.5) * 200:.2f}%"
+            if visual_harmful > 0.5
+            else f"{(visual_harmful - 0.5) * 200:.2f}%",
         )
     with metric_col3:
         st.metric(
@@ -237,14 +288,20 @@ def display_results(results, output_dir):
 
     with tab2:
         st.write("#### Visual Classification")
-        violence_percentage = results['harmful_score_resnet']
-        safe_percentage = 1 - violence_percentage
-        st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
-        st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
+        if mode == "Violence + Text":
+            violence_percentage = results['harmful_score_resnet']
+            safe_percentage = 1 - violence_percentage
+            st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+            st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
+        else:
+            nude_percentage = results['nude_score']
+            safe_percentage = 1 - nude_percentage
+            st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+            st.progress(nude_percentage, text=f"Nudity: {nude_percentage * 100:.2f}%")
 
         sequences = get_detected_sequences(output_dir)
         if sequences:
-            st.write(f"**Detected {len(sequences)} violent sequences**")
+            st.write(f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Text' else 'nudity'} sequences**")
             for i in range(0, len(sequences), 2):
                 cols = st.columns(2)
                 for col_idx in range(2):
@@ -252,8 +309,6 @@ def display_results(results, output_dir):
                         with cols[col_idx]:
                             st.markdown(f"**Sequence {i + col_idx + 1}**")
                             st.image(sequences[i + col_idx]['gif_path'], use_container_width=True)
-        else:
-            st.info("No violent sequences detected")
 
     with tab3:
         display_transcription_with_timestamps(results['transcription'], "results_video_player")
@@ -391,6 +446,14 @@ def main():
         unsafe_allow_html=True,
     )
 
+    # Add this near the top of the main() function, after model loading
+    st.sidebar.title("Detection Mode")
+    detection_mode = st.sidebar.radio(
+        "Select detection type:",
+        ("Violence + Text", "Nudity + Text"),
+        index=0
+    )
+
     # File upload section
     with st.container():
         st.subheader("Upload Video")
@@ -455,7 +518,7 @@ def main():
                 st.session_state.processing_complete = False
                 st.session_state.show_results = False
                 results, processed_video_path = analyze_video(
-                    st.session_state.uploaded_video, st.session_state.output_dir, models
+                    st.session_state.uploaded_video, st.session_state.output_dir, models, detection_mode
                 )
                 if results:
                     st.session_state.processing_complete = True
@@ -484,7 +547,7 @@ def main():
                 else:
                     st.video(processed_video_path)
 
-        display_results(st.session_state.analysis_results, st.session_state.output_dir)
+        display_results(st.session_state.analysis_results, st.session_state.output_dir, detection_mode)
 
         # Clear button
         if st.button("Start New Analysis", type="primary", key="new_analysis"):
