@@ -128,26 +128,31 @@ def preprocess_image(image):
 # In utils.py
 
 def weighted_fusion(bert_scores, visual_scores, mode="violence"):
-    """Updated fusion function to handle both violence and nudity modes"""
-    # Default weights
+    """Updated fusion function to properly handle both violence and nudity modes"""
+    # Base weights
     bert_weight = 0.4
     visual_weight = 0.6
 
-    # Get the appropriate visual score based on mode
+    # Get visual score based on mode
     if mode == "violence":
         visual_harmful = visual_scores.get('harmful', 0.0)
-        # Adjust weights for violence mode
-        if visual_harmful > 0.3:
-            visual_weight = min(visual_weight * 1.5, 0.8)
+        # For violence, we keep standard weighting
     else:  # nudity mode
         visual_harmful = visual_scores.get('nude', 0.0)
-        # Adjust weights for nudity mode
-        if visual_harmful > 0.7:  # Higher threshold for nudity
-            visual_weight = min(visual_weight * 1.2, 0.75)
+        # For nudity, we increase visual weight when high confidence
+        if visual_harmful > 0.7:  # High confidence in nudity
+            visual_weight = 0.8  # Give more weight to visual
+            bert_weight = 0.2
 
     # Calculate combined score
     combined_harmful = (bert_scores['harmful'] * bert_weight +
                         visual_harmful * visual_weight)
+
+    # Special handling for high nudity confidence
+    if mode == "nudity" and visual_harmful > 0.85:
+        # If we're very confident about nudity, override text analysis
+        combined_harmful = max(combined_harmful, visual_harmful * 1.1)  # Boost slightly
+        combined_harmful = min(combined_harmful, 1.0)  # Cap at 100%
 
     final_prediction = "Harmful" if combined_harmful > 0.5 else "Safe"
     final_confidence = combined_harmful if final_prediction == "Harmful" else 1 - combined_harmful

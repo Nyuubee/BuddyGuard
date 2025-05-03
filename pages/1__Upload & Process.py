@@ -131,10 +131,17 @@ def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
                     'harmful': harmful_conf_text
                 }
 
-                visual_scores = {
-                    'safe': safe_score_visual,
-                    'harmful': harmful_score_visual
-                }
+                # With:
+                if mode == "Violence + Text":
+                    visual_scores = {
+                        'safe': safe_score_visual,
+                        'harmful': harmful_score_visual
+                    }
+                else:  # Nudity + Text mode
+                    visual_scores = {
+                        'safe': safe_score_visual,
+                        'nude': harmful_score_visual  # Use 'nude' key for nudity mode
+                    }
 
                 # Use mode-specific fusion
                 final_prediction, final_confidence = weighted_fusion(
