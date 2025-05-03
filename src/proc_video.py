@@ -121,54 +121,84 @@ def extract_frames(video_path, output_dir, resnet_model, class_names, batch_size
 
     return frame_count, predictions_per_frame, confidence_scores_by_class, harmful_frames
 
+
 def combine_frames_to_video(output_dir, output_video_path, frame_count, audio_path, frame_rate=30):
-    temp_video_path = "./temp_video.mp4"
+    temp_video_path = os.path.join(output_dir, "temp_video.mp4")
 
-    # 1. Find the first valid frame to get dimensions
-    frame_example = None
-    for i in range(1, frame_count + 1):
-        frame_path = os.path.join(output_dir, f"frame_{i:04d}.jpg")
-        if os.path.exists(frame_path):
-            frame_example = cv2.imread(frame_path)
-            if frame_example is not None:
-                break
+    try:
+        # Get frame dimensions from first frame
+        first_frame = os.path.join(output_dir, "frame_0001.jpg")
+        if not os.path.exists(first_frame):
+            raise FileNotFoundError(f"First frame not found at {first_frame}")
 
-    # 2. Error if no frames found
-    if frame_example is None:
-        available_frames = [f for f in os.listdir(output_dir) if f.startswith('frame_')]
-        raise ValueError(
-            f"No valid frames found in {output_dir}. "
-            f"Expected {frame_count} frames. Found: {len(available_frames)}"
-        )
+        frame_example = cv2.imread(first_frame)
+        if frame_example is None:
+            raise ValueError(f"Could not read first frame at {first_frame}")
 
-    # 3. Get dimensions from first valid frame
-    height, width, _ = frame_example.shape
+        height, width, _ = frame_example.shape
 
-    # 4. Initialize video writer
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    video_writer = cv2.VideoWriter(temp_video_path, fourcc, frame_rate, (width, height))
+        # Create video from frames using MPEG4 codec (more widely available)
+        fourcc = cv2.VideoWriter_fourcc(*'mp4v')
+        video_writer = cv2.VideoWriter(temp_video_path, fourcc, frame_rate, (width, height))
 
-    # 5. Write all valid frames
-    for i in range(1, frame_count + 1):
-        frame_path = os.path.join(output_dir, f"frame_{i:04d}.jpg")
-        if os.path.exists(frame_path):
+        if not video_writer.isOpened():
+            raise RuntimeError("Failed to open video writer")
+
+        for i in range(1, frame_count + 1):
+            frame_path = os.path.join(output_dir, f"frame_{i:04d}.jpg")
             frame = cv2.imread(frame_path)
             if frame is not None:
                 video_writer.write(frame)
-            else:
-                print(f"Warning: Could not read frame {i} (corrupted file)")
-        else:
-            print(f"Warning: Missing frame {i}")
 
-    video_writer.release()
+        video_writer.release()
 
-    # 6. Combine with audio (existing code)
-    input_video = ffmpeg.input(temp_video_path)
-    input_audio = ffmpeg.input(audio_path)
-    ffmpeg.output(input_video, input_audio, output_video_path,
-                  vcodec='h264', acodec='aac').run()
+        # Combine with audio using more compatible settings
+        try:
+            (
+                ffmpeg
+                .input(temp_video_path)
+                .output(
+                    output_video_path,
+                    vcodec='libx264',  # Use standard H.264 codec
+                    pix_fmt='yuv420p',  # Standard pixel format
+                    crf=23,  # Quality level (lower is better)
+                    preset='fast',  # Encoding speed vs compression tradeoff
+                    acodec='aac',  # Standard audio codec
+                    audio_bitrate='192k',
+                    strict='experimental',
+                    movflags='faststart'  # For web streaming
+                )
+                .overwrite_output()
+                .run(capture_stdout=True, capture_stderr=True)
+            )
+        except ffmpeg.Error as e:
+            print("FFmpeg command failed:")
+            print("Stdout:", e.stdout.decode('utf8'))
+            print("Stderr:", e.stderr.decode('utf8'))
+            # Fallback to simple copy if encoding fails
+            try:
+                (
+                    ffmpeg
+                    .input(temp_video_path)
+                    .output(output_video_path, c='copy')
+                    .overwrite_output()
+                    .run()
+                )
+                print("Used fallback method (stream copy)")
+            except ffmpeg.Error as fallback_e:
+                raise RuntimeError(
+                    f"FFmpeg error (primary and fallback):\nPrimary: {e.stderr.decode('utf8')}\nFallback: {fallback_e.stderr.decode('utf8')}")
 
-    os.remove(temp_video_path)
+    except Exception as e:
+        print(f"Error in combine_frames_to_video: {str(e)}")
+        raise
+    finally:
+        # Clean up temporary files
+        if os.path.exists(temp_video_path):
+            try:
+                os.remove(temp_video_path)
+            except:
+                pass
 
 # END
 # ________________________________________________________________
