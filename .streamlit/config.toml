@@ -1,6 +1,7 @@
 [theme]
 base="light"
 
+
 [server]
 maxUploadSize = 500
 enableCORS = false

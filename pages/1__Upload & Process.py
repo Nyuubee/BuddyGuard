@@ -23,7 +23,7 @@ from src.utils import (
     get_detected_sequences,
     get_video_duration
 )
-
+from styles.styles import spacer
 
 # --- Initialize Session State ---
 if 'uploaded_video' not in st.session_state:
@@ -47,14 +47,14 @@ if 'models' not in st.session_state:
 CLEANUP_TEMP_FILES = True  # Can be made configurable via st.toggle()
 
 # --- Helper Functions ---
-def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
+def analyze_video(video_path, output_dir, models, mode="Violence + Audio Detection"):
     """Analyzes the video content with automatic cleanup of temporary files.
 
     Args:
         video_path: Path to the video file
         output_dir: Directory to store processed files
         models: Dictionary of loaded models
-        mode: Detection mode ("Violence + Text" or "Nudity + Text")
+        mode: Detection mode ("Violence + Audio Detection" or "Nudity + Audio Detection")
     """
     start_time = time.time()
     progress_bar = st.progress(0)
@@ -100,7 +100,7 @@ def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
             with st.spinner("Analyzing video frames..."):
                 frames_path = os.path.join(output_dir, "processed_frames")
 
-                if mode == "Violence + Text":
+                if mode == "Violence + Audio Detection":
                     frame_count, predictions_per_frame, confidence_scores_by_class, harmful_sequences = extract_frame_sequences(
                         video_path,
                         frames_path,
@@ -132,12 +132,12 @@ def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
                 }
 
                 # With:
-                if mode == "Violence + Text":
+                if mode == "Violence + Audio Detection":
                     visual_scores = {
                         'safe': safe_score_visual,
                         'harmful': harmful_score_visual
                     }
-                else:  # Nudity + Text mode
+                else:  # Nudity + Audio Detection mode
                     visual_scores = {
                         'safe': safe_score_visual,
                         'nude': harmful_score_visual  # Use 'nude' key for nudity mode
@@ -147,7 +147,7 @@ def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
                 final_prediction, final_confidence = weighted_fusion(
                     bert_scores,
                     visual_scores,
-                    mode="violence" if mode == "Violence + Text" else "nudity"
+                    mode="violence" if mode == "Violence + Audio Detection" else "nudity"
                 )
 
             with st.spinner("Generating processed video..."):
@@ -172,7 +172,7 @@ def analyze_video(video_path, output_dir, models, mode="Violence + Text"):
             }
 
             # Add mode-specific keys for backward compatibility
-            if mode == "Violence + Text":
+            if mode == "Violence + Audio Detection":
                 results.update({
                     "harmful_score_resnet": harmful_score_visual,
                     "safe_score_resnet": safe_score_visual,
@@ -237,7 +237,7 @@ def cleanup_temp_files(output_dir):
         st.warning(f"Cleanup warning: {str(e)}")
         raise
 
-def display_results(results, output_dir, mode="Violence + Text"):
+def display_results(results, output_dir, mode="Violence + Audio Detection"):
     """Displays the analysis results in the Streamlit app."""
     st.subheader("Analysis Results")
 
@@ -264,9 +264,9 @@ def display_results(results, output_dir, mode="Violence + Text"):
             else f"{(0.5 - results['safe_conf_text']) * 200:.2f}%",
         )
     with metric_col2:
-        visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Text" else results['nude_score']
+        visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Audio Detection" else results['nude_score']
         st.metric(
-            "Visual Harmful" if mode == "Violence + Text" else "Nudity",
+            "Visual Harmful" if mode == "Violence + Audio Detection" else "Nudity",
             f"{visual_harmful * 100:.2f}%",
             f"{(visual_harmful - 0.5) * 200:.2f}%"
             if visual_harmful > 0.5
@@ -295,7 +295,7 @@ def display_results(results, output_dir, mode="Violence + Text"):
 
     with tab2:
         st.write("#### Visual Classification")
-        if mode == "Violence + Text":
+        if mode == "Violence + Audio Detection":
             violence_percentage = results['harmful_score_resnet']
             safe_percentage = 1 - violence_percentage
             st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
@@ -308,7 +308,7 @@ def display_results(results, output_dir, mode="Violence + Text"):
 
         sequences = get_detected_sequences(output_dir)
         if sequences:
-            st.write(f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Text' else 'nudity'} sequences**")
+            st.write(f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Audio Detection' else 'nudity'} sequences**")
             for i in range(0, len(sequences), 2):
                 cols = st.columns(2)
                 for col_idx in range(2):
@@ -453,12 +453,12 @@ def main():
         unsafe_allow_html=True,
     )
 
-    # Add this near the top of the main() function, after model loading
-    st.sidebar.title("Detection Mode")
-    detection_mode = st.sidebar.radio(
+    st.subheader("Detection Mode")
+    detection_mode = st.radio(
         "Select detection type:",
-        ("Violence + Text", "Nudity + Text"),
-        index=0
+        ("Violence + Audio Detection", "Nudity + Audio Detection"),
+        index=0,
+        horizontal=True
     )
 
     # File upload section
@@ -555,6 +555,8 @@ def main():
                     st.video(processed_video_path)
 
         display_results(st.session_state.analysis_results, st.session_state.output_dir, detection_mode)
+
+        spacer(20)
 
         # Clear button
         if st.button("Start New Analysis", type="primary", key="new_analysis"):

@@ -23,6 +23,16 @@ def main():
         }
     )
 
+    st.markdown(
+        r"""
+        <style>
+        .stDeployButton {
+                visibility: hidden;
+            }
+        </style>
+        """, unsafe_allow_html=True
+    )
+
     # Load models on startup
     if 'models' not in st.session_state:
         with st.spinner("Loading AI models (this may take a minute)..."):
