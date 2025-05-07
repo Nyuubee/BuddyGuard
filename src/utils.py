@@ -9,6 +9,7 @@ import os
 import torch
 import numpy as np
 import streamlit as st
+import datetime
 import torchvision.transforms as transforms
 from fpdf import FPDF
 from PIL import Image
@@ -159,13 +160,11 @@ def weighted_fusion(bert_scores, visual_scores, mode="violence"):
 
     return final_prediction, final_confidence
 
-def save_to_pdf(video_name, history_file):  # Changed parameter name from result_path to history_file
+def save_to_pdf(video_name, history_file):
     output_dir = os.path.join("saves", "reports", video_name)
     os.makedirs(output_dir, exist_ok=True)
-
     pdf_path = os.path.join(output_dir, f"{video_name}_report.pdf")
 
-    # Load results from the provided history file
     if not os.path.exists(history_file):
         raise FileNotFoundError("Processed videos history file not found!")
 
@@ -177,40 +176,109 @@ def save_to_pdf(video_name, history_file):  # Changed parameter name from result
 
     results = history[video_name]
 
-    # Create PDF object
     pdf = FPDF()
     pdf.add_page()
-    pdf.set_font("Arial", size=12)
 
-    # Add title
-    pdf.set_font("Arial", style="B", size=16)
-    pdf.cell(200, 10, txt=f"Analysis Report: {video_name}", ln=True, align="C")
+    # Set default font and colors
+    pdf.set_font("Helvetica", "", 10)
+    primary_color = (50, 60, 140)
+    secondary_color = (70, 70, 70)
+    
+    # Header with logo/watermark space
+    pdf.set_fill_color(240, 240, 245)
+    pdf.rect(0, 0, 210, 20, 'F')
+    pdf.set_font("Helvetica", "B", 16)
+    pdf.set_text_color(*primary_color)
+    pdf.cell(0, 15, "CONTENT SAFETY ANALYSIS REPORT", 0, 1, 'C')
+    
+    # Video title section
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*secondary_color)
+    pdf.cell(0, 8, "Analyzed Video:", 0, 1)
+    pdf.set_font("Helvetica", "", 11)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 6, video_name, 0, 1)
+    pdf.ln(8)
+    
+    # Horizontal line separator
+    pdf.set_draw_color(200, 200, 200)
+    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
+    pdf.ln(8)
+
+    # Section: Final Prediction
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.set_text_color(*primary_color)
+    pdf.cell(0, 8, "FINAL ASSESSMENT", 0, 1)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*secondary_color)
+    
+    # Highlighted prediction box
+    pdf.set_fill_color(245, 245, 255)
+    pdf.rect(10, pdf.get_y(), 190, 12, 'F')
+    pdf.cell(40, 8, "Prediction:")
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(30, 30, 30)
+    pdf.cell(0, 8, f"{results['final_prediction'].upper()} ({results['final_confidence']*100:.2f}%)", 0, 1)
+    pdf.ln(5)
+
+    # Two-column layout for text and visual results
+    col_width = 90
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(80, 80, 80)
+    
+    # Left column - Text Classification
+    pdf.cell(col_width, 8, "TEXT ANALYSIS", 0, 0)
+    # Right column - Visual Classification
+    pdf.cell(col_width, 8, "VISUAL ANALYSIS", 0, 1)
+    
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*secondary_color)
+    
+    # Text results
+    pdf.cell(col_width, 6, f"- Harmful: {results['harmful_conf_text']*100:.2f}%", 0, 0)
+    # Visual results
+    pdf.cell(col_width, 6, f"- Harmful: {results['harmful_score_resnet']*100:.2f}%", 0, 1)
+    
+    pdf.cell(col_width, 6, f"- Safe: {results['safe_conf_text']*100:.2f}%", 0, 0)
+    pdf.cell(col_width, 6, f"- Safe: {results['safe_score_resnet']*100:.2f}%", 0, 1)
     pdf.ln(10)
 
-    # Add final prediction and confidence
-    pdf.set_font("Arial", size=12)
-    pdf.cell(200, 10, txt=f"Final Prediction: {results['final_prediction']} ({results['final_confidence']*100:.2f}%)", ln=True)
-    pdf.ln(5)
+    # Section: Transcription
+    pdf.set_font("Helvetica", "B", 11)
+    pdf.set_text_color(*primary_color)
+    pdf.cell(0, 8, "TRANSCRIPTION EXCERPT", 0, 1)
+    pdf.set_font("Helvetica", "", 9)
+    pdf.set_text_color(*secondary_color)
+    
+    # Styled transcription box
+    pdf.set_draw_color(220, 220, 220)
+    pdf.set_fill_color(250, 250, 250)
+    pdf.rect(10, pdf.get_y(), 190, 80, 'DF')
+    
+    # Limit transcription to fit in the box
+    max_lines = 12
+    line_height = 6
+    y_start = pdf.get_y() + 2
+    
+    for i, segment in enumerate(results["transcription"]):
+        if i >= max_lines:
+            pdf.set_xy(15, y_start + (i * line_height))
+            pdf.cell(0, line_height, "[... additional content truncated ...]")
+            break
+        
+        pdf.set_xy(15, y_start + (i * line_height))
+        time_tag = f"[{segment['start_time']}s]"
+        pdf.set_font("Helvetica", "B", 8)
+        pdf.cell(15, line_height, time_tag)
+        pdf.set_font("Helvetica", "", 8)
+        pdf.multi_cell(0, line_height, segment['text'])
+    
+    # Footer
+    pdf.set_y(-15)
+    pdf.set_font("Helvetica", "I", 8)
+    pdf.set_text_color(150, 150, 150)
+    pdf.cell(0, 10, f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", 0, 0, 'C')
 
-    # Add Text Classification Results
-    pdf.cell(200, 10, txt="Text Classification Results:", ln=True)
-    pdf.cell(200, 10, txt=f"- Harmful: {results['harmful_conf_text']*100:.2f}%", ln=True)
-    pdf.cell(200, 10, txt=f"- Safe: {results['safe_conf_text']*100:.2f}%", ln=True)
-    pdf.ln(5)
-
-    # Add Visual Classification Results
-    pdf.cell(200, 10, txt="Video Classification Results:", ln=True)
-    pdf.cell(200, 10, txt=f"- Harmful: {results['harmful_score_resnet']*100:.2f}%", ln=True)
-    pdf.cell(200, 10, txt=f"- Safe: {results['safe_score_resnet']*100:.2f}%", ln=True)
-    pdf.ln(5)
-
-    # Add Transcription
-    pdf.cell(200, 10, txt="Video Transcription:", ln=True)
-    pdf.ln(5)
-    for segment in results["transcription"]:
-        pdf.cell(200, 10, txt=f"{segment['start_time']}s: {segment['text']}", ln=True)
-
-    # Save PDF
     pdf.output(pdf_path)
     return pdf_path
 

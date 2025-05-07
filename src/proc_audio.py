@@ -4,6 +4,8 @@
 # ________________________________________________________________
 import ffmpeg
 import streamlit as st
+import base64
+import json
 
 def extract_audio(video_path, audio_path):
     stream = ffmpeg.input(video_path)
@@ -49,7 +51,7 @@ def display_transcription_with_timestamps(transcription, video_id):
 
             # Add clickable span for seeking
             formatted_transcription += (
-                f"<span style='cursor:pointer; color:cyan; text-decoration:underline;' "
+                f"<span style='color:#212121; text-decoration:underline;' "
                 f"onclick='seekVideo(\"{video_id}\", {start_time})'>{formatted_time}</span> {text}<br>"
             )
         except (TypeError, ValueError) as e:

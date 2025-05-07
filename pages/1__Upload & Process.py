@@ -253,33 +253,40 @@ def display_results(results, output_dir, mode="Violence + Audio Detection"):
         unsafe_allow_html=True,
     )
 
+    st.markdown("---")
+
     # Metrics row - update to use mode-specific keys
     metric_col1, metric_col2, metric_col3 = st.columns(3)
     with metric_col1:
+        text_harm_score = 1 - results['safe_conf_text']
+        text_delta = (0.5 - results['safe_conf_text']) * 200
         st.metric(
-            "Text Harmful",
-            f"{(1 - results['safe_conf_text']) * 100:.2f}%",
-            f"{(0.5 - results['safe_conf_text']) * 200:.2f}%"
-            if results['safe_conf_text'] < 0.5
-            else f"{(0.5 - results['safe_conf_text']) * 200:.2f}%",
+            label="Text Harmful",
+            value=f"{text_harm_score * 100:.2f}%",
+            delta=f"{text_delta:.2f}%",
+            delta_color="inverse",  # Red if increasing harm
         )
     with metric_col2:
         visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Audio Detection" else results['nude_score']
+        visual_delta = (visual_harmful - 0.5) * 200
         st.metric(
-            "Visual Harmful" if mode == "Violence + Audio Detection" else "Nudity",
-            f"{visual_harmful * 100:.2f}%",
-            f"{(visual_harmful - 0.5) * 200:.2f}%"
-            if visual_harmful > 0.5
-            else f"{(visual_harmful - 0.5) * 200:.2f}%",
+            label="Visual Harmful" if mode == "Violence + Audio Detection" else "Nudity",
+            value=f"{visual_harmful * 100:.2f}%",
+            delta=f"{visual_delta:.2f}%",
+            delta_color="inverse",  # Red if increasing harm
         )
     with metric_col3:
+        overall_conf = results['final_confidence']
+        is_harmful = results['final_prediction'] == "Harmful"
         st.metric(
-            "Overall Harmful",
-            f"{results['final_confidence'] * 100:.2f}%"
-            if results['final_prediction'] == "Harmful"
-            else f"{(1 - results['final_confidence']) * 100:.2f}%",
-            "Harmful" if results['final_prediction'] == "Harmful" else "Safe",
+            label="Overall Harmful",
+            value=f"{overall_conf * 100:.2f}%" if is_harmful else f"{(1 - overall_conf) * 100:.2f}%",
+            delta="Harmful" if is_harmful else "Safe",
+            delta_color="inverse" if is_harmful else "normal",
         )
+
+    st.text("")
+    st.text("")
 
     # Detailed results in tabs
     tab1, tab2, tab3 = st.tabs(["Text Analysis", "Visual Analysis", "Transcription"])
@@ -290,6 +297,7 @@ def display_results(results, output_dir, mode="Violence + Audio Detection"):
         st.progress(
             results['harmful_conf_text'], text=f"Harmful Content: {results['harmful_conf_text'] * 100:.2f}%"
         )
+        st.markdown('---')
         st.write("#### Highlighted Toxic Content")
         st.markdown(f"<div style='font-size:16px;'>{results['highlighted_text']}</div>", unsafe_allow_html=True)
 
@@ -308,10 +316,11 @@ def display_results(results, output_dir, mode="Violence + Audio Detection"):
 
         sequences = get_detected_sequences(output_dir)
         if sequences:
+            st.markdown('---')
             st.write(f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Audio Detection' else 'nudity'} sequences**")
-            for i in range(0, len(sequences), 2):
-                cols = st.columns(2)
-                for col_idx in range(2):
+            for i in range(0, len(sequences), 3):
+                cols = st.columns(3)
+                for col_idx in range(3):
                     if i + col_idx < len(sequences):
                         with cols[col_idx]:
                             st.markdown(f"**Sequence {i + col_idx + 1}**")
@@ -338,6 +347,11 @@ def download_youtube_video(youtube_url):
 
         video_stream = yt.streams.filter(file_extension='mp4').first()
         if video_stream:
+            # Check file size before downloading
+            file_size_mb = video_stream.filesize / (1024 * 1024)
+            if file_size_mb > 500:
+                raise ValueError(f"Video file is too large ({file_size_mb:.1f}MB). Maximum size is 500MB.")
+                
             safe_title = slugify(yt.title, max_length=50, word_boundary=True, save_order=True)
             video_name = safe_title[:50]
             # Only create new folder if processing output exists in existing folder
@@ -431,8 +445,7 @@ def save_uploaded_video(uploaded_file):
 
 # --- Main Streamlit App ---
 def main():
-    st.title("Upload & Process Video")
-
+    st.title("Analyze Video")
     # Load models
     # Use pre-loaded models instead of loading here
     if 'models' not in st.session_state or st.session_state.models is None:
@@ -463,45 +476,56 @@ def main():
 
     # File upload section
     with st.container():
-        st.subheader("Upload Video")
-        col1, col2 = st.columns([3, 1])
-        youtube_url = col1.text_input(
-            "Enter YouTube video URL",
-            placeholder="Paste your YouTube link here",
-            label_visibility="collapsed",
-            key="youtube_url",
-        )
+        # Create two columns for upload and YouTube download
+        col_upload, col_youtube = st.columns(2)
+        
+        # Left column: File Upload
+        with col_upload:
+            st.markdown("### Upload from Device")
+            uploaded_file = st.file_uploader(
+                "Upload a video file", 
+                type=["mp4", "avi", "mov", "webm", "mpg", "mkv"], 
+                key="file_uploader"
+            )
 
-        if col2.button("Upload YouTube Video", key="upload_yt"):
-            if youtube_url:
-                video_path, video_name, output_dir = download_youtube_video(youtube_url)
-                if video_path:
-                    st.session_state.uploaded_video = video_path
-                    st.session_state.video_name = video_name
-                    st.session_state.output_dir = output_dir
-                    st.session_state.processing_complete = False
-                    st.session_state.show_results = False
-                    st.success("Video downloaded successfully!")
+            if uploaded_file is not None:
+                if uploaded_file.size > 500 * 1024 * 1024:
+                    st.error("File too large. Maximum size is 100MB.")
+                else:
+                    try:
+                        video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
+                        st.session_state.uploaded_video = video_path
+                        st.session_state.video_name = video_name
+                        st.session_state.output_dir = output_dir
+                        st.session_state.processing_complete = False
+                        st.session_state.show_results = False
+                        st.success("Video uploaded successfully!")
+                    except ValueError as e:
+                        st.error(str(e))
+                    except Exception as e:
+                        st.error(f"Error processing video: {str(e)}")
 
-        uploaded_file = st.file_uploader(
-            "Or upload a video file", type=["mp4", "avi", "mov", "webm", "mpg"], key="file_uploader"
-        )
+        # Right column: YouTube Download
+        with col_youtube:
+            st.markdown("### Download from YouTube")
+            youtube_url = st.text_input(
+                "Enter YouTube video URL",
+                placeholder="Paste your YouTube link here",
+                key="youtube_url",
+            )
 
-        if uploaded_file is not None:
-            if uploaded_file.size > 100 * 1024 * 1024:
-                st.error("File too large. Maximum size is 100MB.")
-            else:
-                try:
-                    video_path, video_name, output_dir = save_uploaded_video(uploaded_file)
-                    st.session_state.uploaded_video = video_path
-                    st.session_state.video_name = video_name
-                    st.session_state.output_dir = output_dir
-                    st.session_state.processing_complete = False
-                    st.session_state.show_results = False
-                except ValueError as e:
-                    st.error(str(e))
-                except Exception as e:
-                    st.error(f"Error processing video: {str(e)}")
+            if st.button("Download Video", key="upload_yt"):
+                if youtube_url:
+                    video_path, video_name, output_dir = download_youtube_video(youtube_url)
+                    if video_path:
+                        st.session_state.uploaded_video = video_path
+                        st.session_state.video_name = video_name
+                        st.session_state.output_dir = output_dir
+                        st.session_state.processing_complete = False
+                        st.session_state.show_results = False
+                        st.success("Video downloaded successfully!")
+
+    st.markdown("---")
 
     # Show uploaded video preview
     if st.session_state.uploaded_video is not None:
@@ -537,6 +561,8 @@ def main():
                     time_str = f"{int(minutes)}m {int(seconds)}s" if minutes > 0 else f"{int(seconds)} seconds"
                     st.success(f"Analysis complete! Processing time: {time_str}")
                     st.balloons()
+
+    st.markdown("---")
 
     # Show results only after processing is complete
     if st.session_state.show_results and st.session_state.processing_complete and 'analysis_results' in st.session_state:

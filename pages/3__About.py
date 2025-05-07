@@ -1,6 +1,5 @@
 # pages/3__About.py
 
-
 import streamlit as st
 from styles.styles import spacer
 
@@ -20,12 +19,12 @@ def about_page():
     <div style="
         background-color: #ffdddd;
         border-left: 6px solid #f44336;
-        padding: 10px;
+        padding: 15px;
         margin-bottom: 20px;
         border-radius: 4px;
         color: #000000;
     ">
-        <h4 style="color: #d32f2f; margin:0;">Important Disclaimer</h4>
+        <h3 style="color: #d32f2f; margin:0;">Important Disclaimer</h3>
         <p style="margin:5px 0;">
         BuddyGuard's AI models may produce <strong>false positives/negatives</strong>. 
         Always use human judgment and never rely solely on automated detection.
@@ -69,17 +68,16 @@ def about_page():
             4. **Human Review**: Flagged content can be reviewed by moderators
             """)
 
-        # with col2:
-        #     st.image("saves/Buddyguard_4_3.png", use_container_width=True)
-        #     st.markdown("""
-        #     <div style="
-        #         text-align: center;
-        #         font-size: small;
-        #         color: #666;
-        #     ">
-        #     BuddyGuard - Your AI content safety companion
-        #     </div>
-        #     """, unsafe_allow_html=True)
+            spacer(10)
+            
+            st.markdown("""
+            <div style="text-align: center; margin-top: 20px;">
+                <p>New to BuddyGuard? Check out our step-by-step tutorial:</p>
+            </div>
+            """, unsafe_allow_html=True)
+            
+            if st.button("Take the Tutorial", use_container_width=True):
+                st.switch_page("pages/4__Tutorial.py")
 
         with col2:
             st.image("saves/Buddyguard_4_3.png", use_container_width=True)

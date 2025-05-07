@@ -8,6 +8,7 @@ import streamlit as st
 from src.models_load import load_models
 from src.utils import create_clickable_blog_post_with_image, blog_posts
 from styles.styles import spacer
+from src.tutorial_utils import ensure_tutorial_mockups
 
 
 def main():
@@ -37,6 +38,8 @@ def main():
     if 'models' not in st.session_state:
         with st.spinner("Loading AI models (this may take a minute)..."):
             st.session_state.models = load_models()
+            # Generate mockup images for the tutorial if they don't exist
+            ensure_tutorial_mockups()
 
     # Center the image
     st.markdown(
@@ -64,8 +67,13 @@ def main():
         st.text(" ")
         spacer(30)
         st.markdown(text_content)
-        if st.button("Get Started", type="primary"):
-            st.switch_page("pages/1__Upload & Process.py")  # Direct page switch
+        col1_1, col1_2 = st.columns(2)
+        with col1_1:
+            if st.button("Get Started", type="primary", use_container_width=True):
+                st.switch_page("./pages/1__Upload & Process.py")  # Direct page switch
+        with col1_2:
+            if st.button("Take Tutorial", use_container_width=True):
+                st.switch_page("./pages/4__Tutorial.py")  # Link to our new tutorial page
 
     # Center the image within the right column
     with col2:

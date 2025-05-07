@@ -66,69 +66,59 @@ if os.path.exists(history_file):
             </div>
             """, unsafe_allow_html=True)
 
+            st.text("")
+            st.text("")
+
             # Create tabs for different analysis sections
-            tab1, tab2, tab3 = st.tabs(["Text", "Visual", "Transcription"])
+            tab1, tab2, tab3, tab4 = st.tabs(["Text Analysis", "Visual Analysis", "Transcription", "PDF"])
 
             with tab1:
-                st.write("### Text Analysis")
+                st.write("#### Text Classification")
                 st.progress(results['safe_conf_text'], text=f"Safe Content: {results['safe_conf_text'] * 100:.2f}%")
-                st.progress(results['harmful_conf_text'],
-                            text=f"Harmful Content: {results['harmful_conf_text'] * 100:.2f}%")
-                st.write("### Highlighted Toxic Content")
+                st.progress(
+                    results['harmful_conf_text'], text=f"Harmful Content: {results['harmful_conf_text'] * 100:.2f}%"
+                )
+                st.markdown('---')
+                st.write("#### Highlighted Toxic Content")
                 st.markdown(f"<div style='font-size:16px;'>{results['highlighted_text']}</div>", unsafe_allow_html=True)
 
             with tab2:
-                st.write("### Visual Analysis")
-
-                # Handle both violence and nudity modes
-                if mode == "Violence + Text":
-                    safe_score = results.get('safe_score_resnet', results.get('safe_score_visual', 0.0))
-                    harmful_score = results.get('harmful_score_resnet', results.get('harmful_score_visual', 0.0))
-                    harmful_label = "Violence"
+                st.write("#### Visual Classification")
+                if mode == "Violence + Audio Detection":
+                    violence_percentage = results['harmful_score_resnet']
+                    safe_percentage = 1 - violence_percentage
+                    st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+                    st.progress(violence_percentage, text=f"Violent: {violence_percentage * 100:.2f}%")
                 else:
-                    safe_score = results.get('safe_score_nudity', 1.0 - results.get('nude_score', 0.0))
-                    harmful_score = results.get('nude_score', 0.0)
-                    harmful_label = "Nudity"
-
-                # Ensure scores add up to 100%
-                if mode != "Violence + Text":
-                    safe_score = 1.0 - harmful_score
-
-                st.progress(safe_score, text=f"Safe: {safe_score * 100:.2f}%")
-                st.progress(harmful_score, text=f"{harmful_label}: {harmful_score * 100:.2f}%")
-
+                    nude_percentage = results['nude_score']
+                    safe_percentage = 1 - nude_percentage
+                    st.progress(safe_percentage, text=f"Safe: {safe_percentage * 100:.2f}%")
+                    st.progress(nude_percentage, text=f"Nudity: {nude_percentage * 100:.2f}%")
+                
                 # Get sequences from the original output folder
                 output_dir = os.path.join("output", video_name)
                 sequences = get_detected_sequences(output_dir)
                 if sequences:
-                    st.write(
-                        f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Text' else 'nudity'} sequences**")
-                    for i in range(0, len(sequences), 2):
-                        cols = st.columns(2)
-                        for col_idx in range(2):
+                    st.markdown('---')
+                    st.write(f"**Detected {len(sequences)} {'violent' if mode == 'Violence + Audio Detection' else 'nudity'} sequences**")
+                    for i in range(0, len(sequences), 3):
+                        cols = st.columns(3)
+                        for col_idx in range(3):
                             if i + col_idx < len(sequences):
                                 with cols[col_idx]:
                                     st.markdown(f"**Sequence {i + col_idx + 1}**")
-                                    st.image(
-                                        sequences[i + col_idx]['gif_path'],
-                                        use_container_width=True
-                                    )
-                else:
-                    st.info(f"No {'violent' if mode == 'Violence + Text' else 'nudity'} sequences detected")
-
+                                    st.image(sequences[i + col_idx]['gif_path'], use_container_width=True)
             with tab3:
                 st.write("### Transcription")
                 display_transcription_with_timestamps(results['transcription'], "video_player")
 
-            st.markdown('---')
-
-            if st.button("Generate PDF Report", type="primary"):
-                try:
-                    pdf_path = save_to_pdf(video_name, history_file)
-                    st.success(f"PDF report generated successfully!")
-                    with st.expander("View PDF"):
+            with tab4:
+                if st.button("Generate PDF Report", type="primary"):
+                    try:
+                        pdf_path = save_to_pdf(video_name, history_file)
+                        st.success(f"PDF report generated successfully!")
                         pdf_viewer(pdf_path)
-                except (FileNotFoundError, ValueError) as e:
-                    st.error(f"Error: {str(e)}")
+                    except (FileNotFoundError, ValueError) as e:
+                        st.error(f"Error: {str(e)}")
 else:
     st.info("No processed videos found. Process some videos in the Upload tab first.")

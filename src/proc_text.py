@@ -28,7 +28,10 @@ def classify_text(transcription, bert_model, tokenizer, device):
     return label, harmful_confidence, safe_confidence, highlighted_text
 
 def highlight_toxic_words(text, inputs, attentions, tokenizer):
-    tokens = tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])  # Convert token IDs to words
+    tokens = [
+        tok for tok in tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+        if tok not in ("[CLS]", "[SEP]")
+    ]
     attention_scores = attentions[-1].mean(dim=1).mean(dim=0).cpu().numpy()
     attention_scores = attention_scores.reshape(-1)[:len(tokens)]  # Ensure correct token length
 
@@ -61,10 +64,10 @@ def highlight_toxic_words(text, inputs, attentions, tokenizer):
 
         if np.any(score > threshold_high):
             score_scalar = np.max(score)  # Get the max score
-            color = f"rgba(255, 0, 0, {max(score_scalar, 1):.2f})"  # High toxicity (red)
+            color = f"rgba(255, 5, 5, {max(score_scalar, 1):.2f})"  # High toxicity (red)
         elif score > threshold_mid:
             score_scalar = np.max(score)  # Get the max score
-            color = f"rgba(255, 165, 0, {max(score_scalar, 1):.2f})"  # Mild toxicity (orange)
+            color = f"rgba(255, 123, 0, {max(score_scalar, 1):.2f})"  # Mild toxicity (orange)
         else:
             color = "black"
 
