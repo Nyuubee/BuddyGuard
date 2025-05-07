@@ -1,6 +1,8 @@
 [theme]
 base="light"
 
+[client]
+toolbarMode = "viewer"
 
 [server]
 maxUploadSize = 500

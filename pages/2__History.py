@@ -10,6 +10,17 @@ from src.utils import save_to_pdf, is_portrait_video, get_detected_sequences
 # History page
 st.title("View Processed Videos")
 
+logo_path = "images/Buddyguard_4_3.png"
+st.html("""
+  <style>
+    [alt=Logo] {
+      height: 10rem;
+    }
+  </style>
+        """)
+
+st.logo(logo_path)
+
 # Add CSS to control video size
 st.markdown("""
 <style>

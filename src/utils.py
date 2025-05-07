@@ -15,6 +15,11 @@ from fpdf import FPDF
 from PIL import Image
 import imageio
 from datetime import timedelta
+from streamlit_extras.app_logo import add_logo
+
+def logo():
+    add_logo("images/Buddyguard_4_3.png", height=100)
+
 
 def add_annotation_to_frame(frame, pred, prob, frame_count, fps, class_names):
     """Add prediction overlay to a frame (same as inference code)"""

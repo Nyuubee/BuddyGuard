@@ -10,6 +10,16 @@ st.set_page_config(
     layout="wide"
 )
 
+logo_path = "images/Buddyguard_4_3.png"
+st.html("""
+  <style>
+    [alt=Logo] {
+      height: 10rem;
+    }
+  </style>
+        """)
+
+st.logo(logo_path)
 
 def about_page():
     st.title("About BuddyGuard 🛡️")

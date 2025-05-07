@@ -446,6 +446,19 @@ def save_uploaded_video(uploaded_file):
 # --- Main Streamlit App ---
 def main():
     st.title("Analyze Video")
+
+    logo_path = "images/Buddyguard_4_3.png"
+    st.html("""
+          <style>
+            [alt=Logo] {
+              height: 10rem;
+            }
+          </style>
+                """)
+
+    st.logo(logo_path)
+
+
     # Load models
     # Use pre-loaded models instead of loading here
     if 'models' not in st.session_state or st.session_state.models is None:

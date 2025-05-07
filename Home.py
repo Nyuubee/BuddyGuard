@@ -24,6 +24,18 @@ def main():
         }
     )
 
+    logo_path = "images/Buddyguard_4_3.png"
+    st.html("""
+      <style>
+        [alt=Logo] {
+          height: 10rem;
+        }
+      </style>
+            """)
+
+    st.logo(logo_path)
+
+
     st.markdown(
         r"""
         <style>
