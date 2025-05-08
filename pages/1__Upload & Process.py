@@ -253,37 +253,134 @@ def display_results(results, output_dir, mode="Violence + Audio Detection"):
         unsafe_allow_html=True,
     )
 
-    st.markdown("---")
+    spacer(20)
 
-    # Metrics row - update to use mode-specific keys
-    metric_col1, metric_col2, metric_col3 = st.columns(3)
-    with metric_col1:
-        text_harm_score = 1 - results['safe_conf_text']
-        text_delta = (0.5 - results['safe_conf_text']) * 200
-        st.metric(
-            label="Text Harmful",
-            value=f"{text_harm_score * 100:.2f}%",
-            delta=f"{text_delta:.2f}%",
-            delta_color="inverse",  # Red if increasing harm
-        )
-    with metric_col2:
+    # Create expandable section for metrics
+    with st.expander("View Detailed Metrics"):
+        # Metrics row - update to use mode-specific keys
+        metric_col1, metric_col2, metric_col3 = st.columns(3)
+        with metric_col1:
+            text_harm_score = 1 - results['safe_conf_text']
+            text_delta = (0.5 - results['safe_conf_text']) * 200
+            st.metric(
+                label="Text Harmful",
+                value=f"{text_harm_score * 100:.2f}%",
+                delta=f"{text_delta:.2f}%",
+                delta_color="inverse",  # Red if increasing harm
+            )
+        with metric_col2:
+            visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Audio Detection" else results['nude_score']
+            visual_delta = (visual_harmful - 0.5) * 200
+            st.metric(
+                label="Visual Harmful" if mode == "Violence + Audio Detection" else "Nudity",
+                value=f"{visual_harmful * 100:.2f}%",
+                delta=f"{visual_delta:.2f}%",
+                delta_color="inverse",  # Red if increasing harm
+            )
+        with metric_col3:
+            overall_conf = results['final_confidence']
+            is_harmful = results['final_prediction'] == "Harmful"
+            st.metric(
+                label="Overall Harmful",
+                value=f"{overall_conf * 100:.2f}%" if is_harmful else f"{(1 - overall_conf) * 100:.2f}%",
+                delta="Harmful" if is_harmful else "Safe",
+                delta_color="inverse" if is_harmful else "normal",
+            )
+
+        # Explanation and calculations
+        st.markdown("---")
+        text_harmful = results['harmful_conf_text']
         visual_harmful = results['harmful_score_resnet'] if mode == "Violence + Audio Detection" else results['nude_score']
-        visual_delta = (visual_harmful - 0.5) * 200
-        st.metric(
-            label="Visual Harmful" if mode == "Violence + Audio Detection" else "Nudity",
-            value=f"{visual_harmful * 100:.2f}%",
-            delta=f"{visual_delta:.2f}%",
-            delta_color="inverse",  # Red if increasing harm
-        )
-    with metric_col3:
-        overall_conf = results['final_confidence']
-        is_harmful = results['final_prediction'] == "Harmful"
-        st.metric(
-            label="Overall Harmful",
-            value=f"{overall_conf * 100:.2f}%" if is_harmful else f"{(1 - overall_conf) * 100:.2f}%",
-            delta="Harmful" if is_harmful else "Safe",
-            delta_color="inverse" if is_harmful else "normal",
-        )
+
+        bert_weight = 0.4
+        visual_weight = 0.6
+
+        if mode != "Violence + Audio Detection" and visual_harmful > 0.7:
+            bert_weight = 0.2
+            visual_weight = 0.8
+
+        combined_harmful = text_harmful * bert_weight + visual_harmful * visual_weight
+        if mode != "Violence + Audio Detection" and visual_harmful > 0.85:
+            combined_harmful = max(combined_harmful, visual_harmful * 1.1)
+            combined_harmful = min(combined_harmful, 1.0)
+
+        if mode == "Violence + Audio Detection":
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("#### Determining the Final Verdict")
+                st.markdown(f"""
+                <div style='background-color: #f0f2f6; padding: 15px; border-radius: 5px;'>
+                <p style='font-size: 16px;'>For this video, we combined:</p>
+                <ul>
+                  <li>Text analysis detected <b>{text_harmful*100:.1f}%</b> harmful content (weighted at <b>{bert_weight*100:.0f}%</b>)</li>
+                  <li>Visual analysis detected <b>{visual_harmful*100:.1f}%</b> violent content (weighted at <b>{visual_weight*100:.0f}%</b>)</li>
+                </ul>
+                <p>This gives a final harmful score of <b>{combined_harmful*100:.1f}%</b>, making the verdict <b>{results['final_prediction']}</b>.</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.text("")
+                st.text("")
+                st.text("")
+                st.info("""
+                Our system balances what is said (text) and what is shown (visual content).
+                For violence detection, we give slightly more importance to what we see (60%) 
+                compared to what is said (40%).
+                """)
+
+            with col2:
+                # Show raw calculation code inline
+                st.markdown("#### Behind the Calculation")
+                override_note = ""
+                if mode != "Violence + Audio Detection" and visual_harmful > 0.85:
+                    override_note = (
+                        f"<br><b>Note:</b> Visual score exceeded 85%, so we applied an override: "
+                        f"Combined = max({combined_harmful:.4f}, {visual_harmful:.4f} × 1.1) → "
+                        f"Final = <b>{combined_harmful:.4f}</b> (capped at 1.0 if needed)."
+                    )
+
+                st.markdown(f"""
+                <div style='background-color: #f0f2f6; padding: 15px; border-radius: 5px;'>
+                <b>1. Mode: {mode}</b><br>
+                Text Score = <u>{text_harmful:.4f}</u>&emsp;
+                Visual Score = <u>{visual_harmful:.4f}</u>
+
+                <br><b>2. Weights</b>:<br>
+                Text Weight = <u>{bert_weight:.1f}</u>&emsp;
+                Visual Weight = <u>{visual_weight:.1f}</u>
+
+                <b>3. Harmful Combined Score</b>:<br>
+                (<b>{text_harmful:.4f}</b> × {bert_weight:.1f}) + (<b>{visual_harmful:.4f}</b> × {visual_weight:.1f}) = 
+                <b>{text_harmful * bert_weight:.4f}</b> + <b>{visual_harmful * visual_weight:.4f}</b> = 
+                <b>{combined_harmful:.4f}</b>{override_note}
+
+                <b>4.</b> If Combined Score > 0.5 → <b>Harmful</b>&emsp;Else → <b>Safe</b>:<br>
+                Final Decision: <u>{results['final_prediction']}</u><br>
+                Final Confidence: <u>{results['final_confidence']:.4f}</u>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            override_applied = visual_harmful > 0.85
+            st.markdown(f"""
+            <div style='background-color: #f0f2f6; padding: 15px; border-radius: 5px;'>
+            <p style='font-size: 16px;'>For this video, we combined:</p>
+            <ul>
+              <li>Text analysis detected <b>{text_harmful*100:.1f}%</b> harmful content (weighted at <b>{bert_weight*100:.0f}%</b>)</li>
+              <li>Visual analysis detected <b>{visual_harmful*100:.1f}%</b> nudity (weighted at <b>{visual_weight*100:.0f}%</b>)</li>
+            </ul>
+            {"<p><b>Note:</b> High nudity detection triggered special handling.</p>" if override_applied else ""}
+            <p>This gives a final harmful score of <b>{combined_harmful*100:.1f}%</b>, making the verdict <b>{results['final_prediction']}</b>.</p>
+            </div>
+            """, unsafe_allow_html=True)
+
+            st.info("""
+            For nudity detection, we adjust our approach based on confidence:
+            
+            • When nudity is detected with high confidence (>70%), we give more weight (80%) 
+              to what we see and less (20%) to what is said
+              
+            • With very high nudity confidence (>85%), we may override the text analysis completely,
+              as visual evidence becomes the primary factor
+            """)
 
     st.text("")
     st.text("")
@@ -446,19 +543,6 @@ def save_uploaded_video(uploaded_file):
 # --- Main Streamlit App ---
 def main():
     st.title("Analyze Video")
-
-    logo_path = "images/Buddyguard_4_3.png"
-    st.html("""
-          <style>
-            [alt=Logo] {
-              height: 10rem;
-            }
-          </style>
-                """)
-
-    st.logo(logo_path)
-
-
     # Load models
     # Use pre-loaded models instead of loading here
     if 'models' not in st.session_state or st.session_state.models is None:
@@ -466,6 +550,17 @@ def main():
         return
 
     models = st.session_state.models  # Use the pre-loaded models
+
+    logo_path = "images/Buddyguard_4_3.png"
+    st.html("""
+      <style>
+        [alt=Logo] {
+          height: 10rem;
+        }
+      </style>
+            """)
+
+    st.logo(logo_path)
 
     # Add CSS to control video size
     st.markdown(
@@ -503,7 +598,7 @@ def main():
 
             if uploaded_file is not None:
                 if uploaded_file.size > 500 * 1024 * 1024:
-                    st.error("File too large. Maximum size is 100MB.")
+                    st.error("File too large. Maximum size is 500MB.")
                 else:
                     try:
                         video_path, video_name, output_dir = save_uploaded_video(uploaded_file)

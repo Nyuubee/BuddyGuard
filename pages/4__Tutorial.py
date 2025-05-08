@@ -73,7 +73,7 @@ def tutorial_page():
             """)
 
         with col2:
-            st.image("saves/Get Started Tutorial.png", use_container_width=True)
+            st.image("images/Step 1 Get Started Tutorial.png", use_container_width=True)
 
     st.markdown("---")
     spacer(20)
@@ -99,7 +99,7 @@ def tutorial_page():
                 """)
 
         with col2:
-            st.image("saves/Video Source Tutorial.png", use_container_width=True)
+            st.image("images/Step 2 Video Source Tutorial.png", use_container_width=True)
 
     st.markdown("---")
     spacer(20)
@@ -126,7 +126,7 @@ def tutorial_page():
             """)
 
         with col2:
-            st.image("saves/Detection Mode Tutorial.png", use_container_width=True)
+            st.image("images/Step 3 Detection Mode Tutorial.png", use_container_width=True)
 
     st.markdown("---")
     spacer(20)
@@ -147,7 +147,7 @@ def tutorial_page():
             - **Confidence Score:** This percentage represents the level of certainty BuddyGuard has in its verdict.""")
 
         with col2:
-            st.image("saves/Processed Video Tutorial.png", use_container_width=True)
+            st.image("images/Step 4 A Processed Video Tutorial.png", use_container_width=True)
 
         spacer(20)
         col1, col2 = st.columns([1, 1])
@@ -163,7 +163,7 @@ def tutorial_page():
                     """)
 
         with col2:
-            st.image("saves/Detailed Text Analysis Tutorial.png", use_container_width=True)
+            st.image("images/Step 4 B Detailed Text Analysis Tutorial.png", use_container_width=True)
 
         spacer(20)
         col1, col2 = st.columns([1, 1])
@@ -179,7 +179,7 @@ def tutorial_page():
                     """)
 
         with col2:
-            st.image("saves/Detailed Visual Analysis Tutorial.png", use_container_width=True)
+            st.image("images/Step 4 C Detailed Visual Analysis Tutorial.png", use_container_width=True)
 
         spacer(20)
         col1, col2 = st.columns([1, 1])
@@ -195,7 +195,7 @@ def tutorial_page():
                             """)
 
         with col2:
-            st.image("saves/Overall Scores Tutorial.png", use_container_width=True)
+            st.image("images/Step 4 D Overall Scores Tutorial.png", use_container_width=True)
 
     st.markdown("---")
     spacer(20)
@@ -219,7 +219,7 @@ def tutorial_page():
             """)
 
         with col2:
-            st.image("saves/History Tutorial.png", use_container_width=True)
+            st.image("images/Step 5 A History Tutorial.png", use_container_width=True)
 
 
         spacer(20)
@@ -234,7 +234,7 @@ def tutorial_page():
             """)
 
         with col2:
-            st.image("saves/Generate PDF tutorial.png", use_container_width=True)
+            st.image("images/Step 5 B Generate PDF tutorial.png", use_container_width=True)
 
     st.markdown("---")
 

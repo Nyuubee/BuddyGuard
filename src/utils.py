@@ -15,11 +15,6 @@ from fpdf import FPDF
 from PIL import Image
 import imageio
 from datetime import timedelta
-from streamlit_extras.app_logo import add_logo
-
-def logo():
-    add_logo("images/Buddyguard_4_3.png", height=100)
-
 
 def add_annotation_to_frame(frame, pred, prob, frame_count, fps, class_names):
     """Add prediction overlay to a frame (same as inference code)"""
@@ -165,10 +160,26 @@ def weighted_fusion(bert_scores, visual_scores, mode="violence"):
 
     return final_prediction, final_confidence
 
-def save_to_pdf(video_name, history_file):
-    output_dir = os.path.join("saves", "reports", video_name)
-    os.makedirs(output_dir, exist_ok=True)
-    pdf_path = os.path.join(output_dir, f"{video_name}_report.pdf")
+def save_to_pdf(video_name, history_file, output_path=None):
+    """
+    Generate a single-page PDF report for the processed video.
+    
+    Args:
+        video_name: Name of the video to generate report for
+        history_file: Path to the JSON file containing processing history
+        output_path: Optional custom path for saving the PDF; if None, uses default location
+        
+    Returns:
+        Path to the generated PDF file
+    """
+    # If output_path is not provided, use default location
+    if output_path is None:
+        output_dir = os.path.join("saves", "reports", video_name)
+        os.makedirs(output_dir, exist_ok=True)
+        output_path = os.path.join(output_dir, f"{video_name}_report.pdf")
+    else:
+        # Ensure directory exists for custom output path
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
 
     if not os.path.exists(history_file):
         raise FileNotFoundError("Processed videos history file not found!")
@@ -181,111 +192,158 @@ def save_to_pdf(video_name, history_file):
 
     results = history[video_name]
 
-    pdf = FPDF()
+    # Create PDF with A4 dimensions
+    pdf = FPDF(format='A4')
     pdf.add_page()
+    
+    # Set margins to maximize usable space
+    pdf.set_auto_page_break(auto=False)  # Disable auto page break to control layout precisely
+    page_width = 210  # A4 width in mm
+    margin = 10
+    usable_width = page_width - (margin * 2)
 
-    # Set default font and colors
-    pdf.set_font("Helvetica", "", 10)
+    # Define colors
     primary_color = (50, 60, 140)
     secondary_color = (70, 70, 70)
     
-    # Header with logo/watermark space
+    # Header with compact design and logo
     pdf.set_fill_color(240, 240, 245)
-    pdf.rect(0, 0, 210, 20, 'F')
-    pdf.set_font("Helvetica", "B", 16)
-    pdf.set_text_color(*primary_color)
-    pdf.cell(0, 15, "CONTENT SAFETY ANALYSIS REPORT", 0, 1, 'C')
+    pdf.rect(0, 0, 210, 25, 'F')
     
-    # Video title section
-    pdf.set_font("Helvetica", "B", 12)
+    # Add logo
+    logo_path = os.path.join("saves", "Buddyguard_4_3.png")
+    if os.path.exists(logo_path):
+        # Logo on left side of header
+        logo_height = 15  # Adjust as needed
+        pdf.image(logo_path, x=margin, y=5, h=logo_height)
+        
+        # Title on right side of logo
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_text_color(*primary_color)
+        pdf.set_xy(margin + 30, 8)  # Position after logo
+        pdf.cell(150, 10, "CONTENT SAFETY ANALYSIS REPORT", 0, 1, 'C')
+    else:
+        # Fallback to centered title if logo not found
+        pdf.set_font("Helvetica", "B", 16)
+        pdf.set_text_color(*primary_color)
+        pdf.cell(0, 10, "CONTENT SAFETY ANALYSIS REPORT", 0, 1, 'C')
+    
+    # Video title section - more compact
+    current_y = 30  # Start position after header
+    pdf.set_y(current_y)
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*secondary_color)
-    pdf.cell(0, 8, "Analyzed Video:", 0, 1)
-    pdf.set_font("Helvetica", "", 11)
+    pdf.cell(30, 6, "Analyzed Video:", 0, 0)
+    pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(30, 30, 30)
     pdf.cell(0, 6, video_name, 0, 1)
-    pdf.ln(8)
     
     # Horizontal line separator
+    current_y = pdf.get_y() + 2
+    pdf.set_y(current_y)
     pdf.set_draw_color(200, 200, 200)
-    pdf.line(10, pdf.get_y(), 200, pdf.get_y())
-    pdf.ln(8)
-
-    # Section: Final Prediction
+    pdf.line(margin, current_y, page_width - margin, current_y)
+    
+    # Section: Final Prediction - more compact
+    current_y = pdf.get_y() + 6
+    pdf.set_y(current_y)
+    pdf.set_x(margin)
     pdf.set_font("Helvetica", "B", 12)
     pdf.set_text_color(*primary_color)
-    pdf.cell(0, 8, "FINAL ASSESSMENT", 0, 1)
-    pdf.set_font("Helvetica", "", 10)
-    pdf.set_text_color(*secondary_color)
+    pdf.cell(0, 6, "FINAL ASSESSMENT", 0, 1)
     
     # Highlighted prediction box
+    current_y = pdf.get_y()
     pdf.set_fill_color(245, 245, 255)
-    pdf.rect(10, pdf.get_y(), 190, 12, 'F')
-    pdf.cell(40, 8, "Prediction:")
+    pdf.rect(margin, current_y, usable_width, 8, 'F')
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(*secondary_color)
+    pdf.cell(25, 8, "Prediction:")
     pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(30, 30, 30)
     pdf.cell(0, 8, f"{results['final_prediction'].upper()} ({results['final_confidence']*100:.2f}%)", 0, 1)
-    pdf.ln(5)
-
-    # Two-column layout for text and visual results
-    col_width = 90
-    pdf.set_font("Helvetica", "B", 11)
-    pdf.set_text_color(80, 80, 80)
     
-    # Left column - Text Classification
-    pdf.cell(col_width, 8, "TEXT ANALYSIS", 0, 0)
-    # Right column - Visual Classification
-    pdf.cell(col_width, 8, "VISUAL ANALYSIS", 0, 1)
+    # Two-column layout for text and visual results - more compact
+    current_y = pdf.get_y() + 6
+    pdf.set_y(current_y)
+    col_width = usable_width / 2
     
-    pdf.set_font("Helvetica", "", 9)
-    pdf.set_text_color(*secondary_color)
-    
-    # Text results
-    pdf.cell(col_width, 6, f"- Harmful: {results['harmful_conf_text']*100:.2f}%", 0, 0)
-    # Visual results
-    pdf.cell(col_width, 6, f"- Harmful: {results['harmful_score_resnet']*100:.2f}%", 0, 1)
-    
-    pdf.cell(col_width, 6, f"- Safe: {results['safe_conf_text']*100:.2f}%", 0, 0)
-    pdf.cell(col_width, 6, f"- Safe: {results['safe_score_resnet']*100:.2f}%", 0, 1)
-    pdf.ln(10)
-
-    # Section: Transcription
-    pdf.set_font("Helvetica", "B", 11)
+    # Side-by-side columns with clear headers
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "B", 10)
     pdf.set_text_color(*primary_color)
-    pdf.cell(0, 8, "TRANSCRIPTION EXCERPT", 0, 1)
-    pdf.set_font("Helvetica", "", 9)
+    pdf.cell(col_width, 6, "TEXT ANALYSIS", 0, 0)
+    pdf.cell(col_width, 6, "VISUAL ANALYSIS", 0, 1)
+    
+    # Results rows
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(*secondary_color)
+    
+    # First row of results
+    pdf.cell(col_width, 5, f"- Harmful: {results['harmful_conf_text']*100:.2f}%", 0, 0)
+    pdf.cell(col_width, 5, f"- Harmful: {results['harmful_score_resnet']*100:.2f}%", 0, 1)
+    
+    # Second row of results
+    pdf.set_x(margin)
+    pdf.cell(col_width, 5, f"- Safe: {results['safe_conf_text']*100:.2f}%", 0, 0)
+    pdf.cell(col_width, 5, f"- Safe: {results['safe_score_resnet']*100:.2f}%", 0, 1)
+    
+    # Section: Transcription - optimized for space
+    current_y = pdf.get_y() + 6
+    pdf.set_y(current_y)
+    pdf.set_x(margin)
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_text_color(*primary_color)
+    pdf.cell(0, 6, "TRANSCRIPTION EXCERPT", 0, 1)
+    
+    # Calculate remaining space for transcription
+    footer_height = 10
+    transcription_height = 297 - current_y - footer_height - margin  # 297 is A4 height in mm
     
     # Styled transcription box
     pdf.set_draw_color(220, 220, 220)
     pdf.set_fill_color(250, 250, 250)
-    pdf.rect(10, pdf.get_y(), 190, 80, 'DF')
+    transcription_y = pdf.get_y()
+    pdf.rect(margin, transcription_y, usable_width, transcription_height, 'DF')
     
-    # Limit transcription to fit in the box
-    max_lines = 12
-    line_height = 6
-    y_start = pdf.get_y() + 2
+    # Limit transcription to fit in the available space
+    max_lines = int(transcription_height / 5)  # Estimate based on line height
+    line_height = 5
+    y_start = transcription_y + 2
+    
+    # Add transcription content with timestamps
+    pdf.set_font("Helvetica", "", 8)
+    pdf.set_text_color(*secondary_color)
     
     for i, segment in enumerate(results["transcription"]):
-        if i >= max_lines:
-            pdf.set_xy(15, y_start + (i * line_height))
+        if i >= max_lines - 1:  # Reserve one line for truncation message if needed
+            pdf.set_xy(margin + 5, y_start + ((max_lines-1) * line_height))
             pdf.cell(0, line_height, "[... additional content truncated ...]")
             break
         
-        pdf.set_xy(15, y_start + (i * line_height))
+        # Display time tag and text
+        pdf.set_xy(margin + 5, y_start + (i * line_height))
         time_tag = f"[{segment['start_time']}s]"
         pdf.set_font("Helvetica", "B", 8)
         pdf.cell(15, line_height, time_tag)
         pdf.set_font("Helvetica", "", 8)
-        pdf.multi_cell(0, line_height, segment['text'])
+        text = segment['text']
+        # Truncate text if too long
+        if len(text) > 55:
+            text = text[:55] + "..."
+        pdf.cell(0, line_height, text)
     
-    # Footer
-    pdf.set_y(-15)
+    # Footer - properly positioned at bottom of page
+    pdf.set_y(297 - footer_height)  # Position at bottom of page
     pdf.set_font("Helvetica", "I", 8)
     pdf.set_text_color(150, 150, 150)
     pdf.cell(0, 10, f"Report generated on {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}", 0, 0, 'C')
 
-    pdf.output(pdf_path)
-    return pdf_path
+    pdf.output(output_path)
+    return output_path
 
 def save_sequence_as_gif(frames, preds, probs, frame_numbers, fps, output_dir, sequence_id, video_name, class_names):
     """Save an annotated sequence as GIF"""

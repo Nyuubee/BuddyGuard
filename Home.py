@@ -17,11 +17,7 @@ def main():
         page_icon='🕵️‍♂️',
         layout='wide',
         initial_sidebar_state='expanded',
-        menu_items={
-            'Get Help': None,
-            'Report a bug': None,
-            'About': None
-        }
+        menu_items={ 'Get Help': None, 'Report a bug': None, 'About': None }
     )
 
     logo_path = "images/Buddyguard_4_3.png"
@@ -35,13 +31,10 @@ def main():
 
     st.logo(logo_path)
 
-
     st.markdown(
         r"""
         <style>
-        .stDeployButton {
-                visibility: hidden;
-            }
+        .stDeployButton { visibility: hidden; }
         </style>
         """, unsafe_allow_html=True
     )
@@ -82,10 +75,10 @@ def main():
         col1_1, col1_2 = st.columns(2)
         with col1_1:
             if st.button("Get Started", type="primary", use_container_width=True):
-                st.switch_page("./pages/1__Upload & Process.py")  # Direct page switch
+                st.switch_page("pages/1__Upload & Process.py")  # Direct page switch
         with col1_2:
             if st.button("Take Tutorial", use_container_width=True):
-                st.switch_page("./pages/4__Tutorial.py")  # Link to our new tutorial page
+                st.switch_page("pages/4__Tutorial.py")  # Link to our new tutorial page
 
     # Center the image within the right column
     with col2:
