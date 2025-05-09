@@ -4,6 +4,7 @@ __pycache__/
 *$py.class
 models/
 saves/processed_videos.json
+saves/reports/
 output/
 # C extensions
 *.so

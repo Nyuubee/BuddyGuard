@@ -246,7 +246,7 @@ def display_results(results, output_dir, mode="Violence + Audio Detection"):
     st.markdown(
         f"""
     <div style='padding: 10px; border-radius: 5px; background-color: {verdict_color}; color: white; text-align: center;'>
-    <h3>VERDICT: {results['final_prediction'].upper()}</h3>
+    <h3>CLASSIFIED AS: {results['final_prediction'].upper()}</h3>
     <p>Confidence: {results['final_confidence'] * 100:.2f}%</p>
     </div>
     """,
